@@ -141,6 +141,16 @@ class Sandbox {
 			height: containerEl.clientHeight,
 		});
 
+		const suppressNativeDrag = (event) => {
+			event.preventDefault();
+		};
+		this.stage.container().style.userSelect = "none";
+		this.stage.container().style.webkitUserSelect = "none";
+		this.stage.container().style.webkitUserDrag = "none";
+		this.stage.container().style.touchAction = "none";
+		this.stage.container().addEventListener("dragstart", suppressNativeDrag);
+		this.stage.container().addEventListener("selectstart", suppressNativeDrag);
+
 		this.layer = new Konva.Layer();
 		this.stage.add(this.layer);
 
@@ -166,6 +176,7 @@ class Sandbox {
 		};
 
 		this.stage.on("mousedown touchstart", (event) => {
+			event.evt?.preventDefault?.();
 			if (event.target === this.stage) {
 				const pointer = this.stage.getPointerPosition();
 				if (!pointer) {
@@ -357,7 +368,7 @@ class Sandbox {
 	}
 
 	createAnchorData(vertices, edgeDivisions = 2) {
-		const divisions = clamp(Number(edgeDivisions) || 2, 1, 5);
+		const divisions = clamp(Number(edgeDivisions) || 2, 1, 7);
 		const edgeAnchors = [];
 		const edgeKinds = [];
 
@@ -693,6 +704,7 @@ class Sandbox {
 		if (!isShadow && !isReadOnly) {
 			group.on("mousedown touchstart", (event) => {
 				event.cancelBubble = true;
+				event.evt?.preventDefault?.();
 				setActiveSandbox(this);
 				const additiveSelect = Boolean(event.evt?.shiftKey || event.evt?.ctrlKey || event.evt?.metaKey);
 				if (additiveSelect) {
@@ -751,7 +763,8 @@ class Sandbox {
 				this.deleteShapeById(shapeModel.id);
 			});
 
-			group.on("dragstart", () => {
+			group.on("dragstart", (event) => {
+				event.evt?.preventDefault?.();
 				setActiveSandbox(this);
 				if (!this.selectedShapeIds.has(shapeModel.id)) {
 					this.setSelectedShape(shapeModel.id);
@@ -1275,7 +1288,7 @@ function updateColorButtonState() {
 }
 
 function formatEdgeAnchorDivisionsLabel(divisions) {
-	const n = clamp(Number(divisions) || 2, 1, 5);
+	const n = clamp(Number(divisions) || 2, 1, 7);
 	if (n === 1) {
 		return "none";
 	}
@@ -1288,7 +1301,13 @@ function formatEdgeAnchorDivisionsLabel(divisions) {
 	if (n === 4) {
 		return "quarters";
 	}
-	return "fifths";
+	if (n === 5) {
+		return "fifths";
+	}
+	if (n === 6) {
+		return "sixths";
+	}
+	return "sevenths";
 }
 
 function updateEdgeAnchorControlState() {

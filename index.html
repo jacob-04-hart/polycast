@@ -66,6 +66,13 @@
 				box-sizing: border-box;
 			}
 
+			canvas {
+				user-select: none;
+				-webkit-user-select: none;
+				-webkit-user-drag: none;
+				touch-action: none;
+			}
+
 			body {
 				margin: 0;
 				min-height: 100vh;
@@ -253,16 +260,16 @@
 
 			.rule-workspaces {
 				display: grid;
-				grid-template-columns: repeat(2, 280px);
+				grid-template-columns: repeat(2, 320px);
 				gap: 0.7rem;
 				max-width: none;
 			}
 
 			.workspace {
-				width: 280px;
+				width: 320px;
 				aspect-ratio: 1 / 1;
-				min-height: 280px;
-				max-height: 280px;
+				min-height: 320px;
+				max-height: 320px;
 				border-radius: 14px;
 				border: 1px solid var(--workspace-border);
 				background:
@@ -439,7 +446,7 @@
 
 				<div class="control-group">
 					<div class="group-title">Edge Anchors</div>
-					<input id="edge-anchor-divisions" type="range" min="1" max="5" step="1" value="2" />
+					<input id="edge-anchor-divisions" type="range" min="1" max="7" step="1" value="2" />
 					<div class="group-title" id="edge-anchor-label">midpoint</div>
 				</div>
 
