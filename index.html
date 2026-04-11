@@ -12,6 +12,7 @@
 		/>
 		<style>
 			:root {
+				color-scheme: light dark;
 				--bg: #f6f7fb;
 				--panel: #ffffff;
 				--ink: #1f2633;
@@ -19,6 +20,46 @@
 				--accent: #ff6f3c;
 				--accent-soft: #ffd8c9;
 				--border: #dbe1eb;
+				--surface: #ffffff;
+				--surface-soft: #ffffffee;
+				--surface-alt: #f8faff;
+				--grid-line: rgba(15, 25, 43, 0.07);
+				--swatch-border: #d7dce7;
+				--swatch-hover-border: #2b3140;
+				--swatch-active-border: #1f2633;
+				--danger-bg: #2b3140;
+				--danger-ink: #ffffff;
+				--shadow: 0 8px 30px rgba(15, 25, 43, 0.08);
+				--workspace-border: #e5e9f1;
+				--workspace-dash: #cbd3e2;
+				--body-glow-a: #fff7f0;
+				--body-glow-b: #e7efff;
+			}
+
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--bg: #11141b;
+					--panel: #171d27;
+					--ink: #c8cfdb;
+					--muted: #9ca6ba;
+					--accent: #ff875b;
+					--accent-soft: #3b2a23;
+					--border: #2a3447;
+					--surface: #1a2230;
+					--surface-soft: #1a2230ee;
+					--surface-alt: #1d2636;
+					--grid-line: rgba(200, 207, 219, 0.1);
+					--swatch-border: #3a455b;
+					--swatch-hover-border: #b7becd;
+					--swatch-active-border: #c8cfdb;
+					--danger-bg: #2c364a;
+					--danger-ink: #d8deea;
+					--shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+					--workspace-border: #2c3850;
+					--workspace-dash: #3a4963;
+					--body-glow-a: #2b1d1a;
+					--body-glow-b: #1b2435;
+				}
 			}
 
 			* {
@@ -31,8 +72,8 @@
 				font-family: "Outfit", sans-serif;
 				color: var(--ink);
 				background:
-					radial-gradient(circle at 0% 0%, #fff7f0 0%, transparent 38%),
-					radial-gradient(circle at 100% 100%, #e7efff 0%, transparent 45%),
+					radial-gradient(circle at 0% 0%, var(--body-glow-a) 0%, transparent 38%),
+					radial-gradient(circle at 100% 100%, var(--body-glow-b) 0%, transparent 45%),
 					var(--bg);
 				display: block;
 				padding: 1rem;
@@ -51,7 +92,7 @@
 				background: var(--panel);
 				border: 1px solid var(--border);
 				border-radius: 18px;
-				box-shadow: 0 8px 30px rgba(15, 25, 43, 0.08);
+				box-shadow: var(--shadow);
 			}
 
 			.panel {
@@ -90,9 +131,10 @@
 
 			.controls button {
 				border: 1px solid var(--border);
-				background: #fff;
+				background: var(--surface);
 				padding: 0.72rem 0.9rem;
 				border-radius: 11px;
+				color: var(--ink);
 				font: inherit;
 				text-align: left;
 				cursor: pointer;
@@ -120,20 +162,24 @@
 			.color-swatch {
 				width: 100%;
 				height: 34px;
-				border: 2px solid #d7dce7;
+				border: 2px solid var(--swatch-border);
 				border-radius: 10px;
 				padding: 0;
+				display: grid;
+				place-items: center;
+				font-size: 0.78rem;
+				font-weight: 700;
 				cursor: pointer;
 				transition: transform 140ms ease, border-color 140ms ease;
 			}
 
 			.color-swatch:hover {
 				transform: translateY(-1px);
-				border-color: #2b3140;
+				border-color: var(--swatch-hover-border);
 			}
 
 			.color-swatch.active {
-				border-color: #1f2633;
+				border-color: var(--swatch-active-border);
 				box-shadow: 0 0 0 2px #1f263322;
 			}
 
@@ -142,8 +188,8 @@
 				border: none;
 				border-radius: 11px;
 				padding: 0.72rem 0.9rem;
-				background: #2b3140;
-				color: #fff;
+				background: var(--danger-bg);
+				color: var(--danger-ink);
 				font: inherit;
 				cursor: pointer;
 			}
@@ -160,7 +206,7 @@
 				border: 1px solid var(--border);
 				border-radius: 18px;
 				padding: 0.85rem;
-				box-shadow: 0 8px 30px rgba(15, 25, 43, 0.08);
+				box-shadow: var(--shadow);
 				display: grid;
 				gap: 0.7rem;
 				width: max-content;
@@ -172,7 +218,8 @@
 				top: 0.38rem;
 				right: 0.42rem;
 				border: 1px solid var(--border);
-				background: #fff;
+				background: var(--surface);
+				color: var(--ink);
 				font: inherit;
 				font-size: 0.95rem;
 				line-height: 1;
@@ -189,7 +236,8 @@
 
 			.add-rule-btn {
 				border: 1px solid var(--border);
-				background: #fff;
+				background: var(--surface);
+				color: var(--ink);
 				font: inherit;
 				font-size: 1.2rem;
 				line-height: 1;
@@ -216,61 +264,114 @@
 				min-height: 280px;
 				max-height: 280px;
 				border-radius: 14px;
-				border: 1px solid #e5e9f1;
+				border: 1px solid var(--workspace-border);
 				background:
-					linear-gradient(90deg, rgba(15, 25, 43, 0.07) 1px, transparent 1px) 0 0 / 26px 26px,
-					linear-gradient(rgba(15, 25, 43, 0.07) 1px, transparent 1px) 0 0 / 26px 26px,
-					#fdfdff;
+					linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0 / 26px 26px,
+					linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0 / 26px 26px,
+					var(--surface-alt);
 			}
 
 			.output-panel {
 				background: var(--panel);
 				border: 1px solid var(--border);
 				border-radius: 18px;
-				box-shadow: 0 8px 30px rgba(15, 25, 43, 0.08);
+				box-shadow: var(--shadow);
 				padding: 1rem;
 				position: sticky;
 				top: 1rem;
 				display: grid;
-				grid-template-rows: auto 1fr;
-				gap: 0.12rem;
+				grid-template-rows: 1fr;
 				height: calc(100vh - 2rem);
 				min-height: 360px;
 			}
 
-			.output-actions {
-				display: grid;
-				grid-template-columns: auto auto;
+			.output-overlay {
+				position: absolute;
+				top: 0.55rem;
+				left: 0.55rem;
+				display: flex;
 				align-items: center;
 				gap: 0.35rem;
+				z-index: 3;
 			}
 
-			.output-btn {
+			.output-icon-btn {
 				border: 1px solid var(--border);
-				background: #fff;
+				background: var(--surface);
+				color: var(--ink);
 				border-radius: 8px;
-				padding: 0.35rem 0.55rem;
+				width: 34px;
+				height: 34px;
+				padding: 0;
 				font: inherit;
-				font-size: 0.82rem;
-				line-height: 1.1;
+				font-size: 1.05rem;
+				line-height: 1;
+				display: grid;
+				place-items: center;
 				cursor: pointer;
 				transition: 150ms ease;
 			}
 
-			.output-btn:hover {
+			.output-icon-btn:hover {
 				border-color: var(--accent);
 				background: var(--accent-soft);
+			}
+
+			.output-icon-btn:disabled {
+				opacity: 0.4;
+				cursor: not-allowed;
+				filter: grayscale(0.5);
+			}
+
+			.output-max {
+				display: flex;
+				align-items: center;
+				gap: 0.3rem;
+				padding: 0.15rem 0.4rem;
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				background: var(--surface-soft);
+				font-size: 0.72rem;
+				color: var(--muted);
+			}
+
+			.output-max input {
+				width: 72px;
+				border: 1px solid var(--swatch-border);
+				border-radius: 6px;
+				padding: 0.18rem 0.3rem;
+				color: var(--ink);
+				background: var(--surface);
+				font: inherit;
+				font-size: 0.76rem;
+			}
+
+			.output-speed {
+				display: flex;
+				align-items: center;
+				gap: 0.35rem;
+				padding: 0.15rem 0.4rem;
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				background: var(--surface-soft);
+				font-size: 0.72rem;
+				color: var(--muted);
+			}
+
+			.output-speed input[type="range"] {
+				width: 96px;
 			}
 
 			.output-window {
 				min-height: 0;
 				border-radius: 12px;
-				border: 1px dashed #cbd3e2;
-				background: linear-gradient(180deg, #ffffff, #f8faff);
+				border: 1px dashed var(--workspace-dash);
+				background: linear-gradient(180deg, var(--surface), var(--surface-alt));
 				padding: 0;
 				display: flex;
 				flex: 1;
 				overflow: hidden;
+				position: relative;
 			}
 
 			.output-workspace {
@@ -323,7 +424,7 @@
 		<main class="app">
 			<section class="panel">
 				<div>
-					<h1>Polygon Snap Sandbox</h1>
+					<h1>PolyCast</h1>
 				</div>
 
 				<div class="controls" id="spawn-controls"></div>
@@ -331,17 +432,15 @@
 				<div class="control-group">
 					<div class="group-title">Rotate Selected</div>
 					<div class="row">
-						<button id="rotate-left-btn" type="button">Rotate CC</button>
-						<button id="rotate-right-btn" type="button">Rotate CW</button>
+						<button id="rotate-left-btn" type="button">CC (Q)</button>
+						<button id="rotate-right-btn" type="button">CW (E)</button>
 					</div>
 				</div>
 
 				<div class="control-group">
-					<div class="group-title">Scale Selected</div>
-					<div class="row">
-						<button id="scale-down-btn" type="button">Scale -</button>
-						<button id="scale-up-btn" type="button">Scale +</button>
-					</div>
+					<div class="group-title">Edge Anchors</div>
+					<input id="edge-anchor-divisions" type="range" min="1" max="5" step="1" value="2" />
+					<div class="group-title" id="edge-anchor-label">midpoint</div>
 				</div>
 
 				<div class="control-group">
@@ -358,8 +457,8 @@
 					<input id="load-input" type="file" accept="application/json" hidden />
 				</div>
 
-				<button id="clear-btn" class="danger">Clear Canvas</button>
-				<button id="clear-all-btn" class="danger" type="button">Clear Tools + Output</button>
+				<button id="clear-btn" class="danger">Clear Selected Canvas</button>
+				<button id="clear-all-btn" class="danger" type="button">Clear All</button>
 			</section>
 
 			<section class="rules-area" id="rules-container">
@@ -367,11 +466,20 @@
 			</section>
 
 			<aside class="output-panel">
-				<div class="output-actions">
-					<button id="apply-rules-btn" class="output-btn" type="button">Apply Rules</button>
-					<button id="reset-output-btn" class="output-btn" type="button">Reset Output</button>
-				</div>
 				<div class="output-window">
+					<div class="output-overlay">
+						<button id="apply-rules-btn" class="output-icon-btn" type="button" title="Iterate once">⟳</button>
+						<button id="reset-output-btn" class="output-icon-btn" type="button" title="Reset output">↺</button>
+						<button id="play-rules-btn" class="output-icon-btn" type="button" title="Play iterations">▶</button>
+						<label class="output-max" for="play-max-shapes">
+							<span>max</span>
+							<input id="play-max-shapes" type="number" min="1" step="1" value="500" />
+						</label>
+						<label class="output-speed" for="play-delay-ms">
+							<span>speed</span>
+							<input id="play-delay-ms" type="range" min="0" max="500" step="10" value="380" />
+						</label>
+					</div>
 					<div id="output-workspace" class="workspace output-workspace"></div>
 				</div>
 			</aside>

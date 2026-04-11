@@ -6,7 +6,7 @@ const palette = [
 	{ id: "octagon", sides: 8, radius: 62 },
 ];
 
-const COLOR_CHOICES = ["#ef4444", "#f97316", "#facc15", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899"];
+const COLOR_CHOICES = ["#ef4444", "#f97316", "#facc15", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#9ca3af", "#111111"];
 const DEFAULT_SHAPE_FILL = "#c5cad4";
 const DEFAULT_SHAPE_STROKE = "#646d7d";
 const VERTEX_SNAP_DISTANCE = 13;
@@ -20,6 +20,8 @@ const clearBtn = document.getElementById("clear-btn");
 const clearAllBtn = document.getElementById("clear-all-btn");
 const rotateLeftBtn = document.getElementById("rotate-left-btn");
 const rotateRightBtn = document.getElementById("rotate-right-btn");
+const edgeAnchorDivisionsInput = document.getElementById("edge-anchor-divisions");
+const edgeAnchorLabel = document.getElementById("edge-anchor-label");
 const scaleDownBtn = document.getElementById("scale-down-btn");
 const scaleUpBtn = document.getElementById("scale-up-btn");
 const saveBtn = document.getElementById("save-btn");
@@ -30,6 +32,9 @@ const rulesContainerEl = document.getElementById("rules-container");
 const outputWorkspaceEl = document.getElementById("output-workspace");
 const applyRulesBtn = document.getElementById("apply-rules-btn");
 const resetOutputBtn = document.getElementById("reset-output-btn");
+const playRulesBtn = document.getElementById("play-rules-btn");
+const playMaxShapesInput = document.getElementById("play-max-shapes");
+const playDelayMsInput = document.getElementById("play-delay-ms");
 const addRuleButtonEl = document.createElement("button");
 
 const STORAGE_RULES_SNAPSHOT_KEY = "fracdle.rules.snapshot.v2";
@@ -49,6 +54,9 @@ const SCALE_STEP_UP = 1.15;
 const SCALE_STEP_DOWN = 1 / SCALE_STEP_UP;
 
 let isApplyingRules = false;
+let isAutoPlaying = false;
+let autoPlayRunToken = 0;
+let playStoppedAtMax = false;
 
 function regularPolygonVertices(sides, radius) {
 	const points = [];
@@ -136,14 +144,129 @@ class Sandbox {
 		this.layer = new Konva.Layer();
 		this.stage.add(this.layer);
 
+		this.selectionRect = new Konva.Rect({
+			x: 0,
+			y: 0,
+			width: 0,
+			height: 0,
+			fill: "rgba(59,130,246,0.14)",
+			stroke: "#3b82f6",
+			strokeWidth: 1,
+			visible: false,
+			listening: false,
+		});
+		this.layer.add(this.selectionRect);
+
+		this.dragSelectState = {
+			active: false,
+			additive: false,
+			start: null,
+			baseSelection: new Set(),
+			hasDragged: false,
+		};
+
 		this.stage.on("mousedown touchstart", (event) => {
 			if (event.target === this.stage) {
-				this.setSelectedShape(null);
+				const pointer = this.stage.getPointerPosition();
+				if (!pointer) {
+					return;
+				}
+				const additive = Boolean(event.evt?.shiftKey || event.evt?.ctrlKey || event.evt?.metaKey);
+				this.dragSelectState.active = true;
+				this.dragSelectState.additive = additive;
+				this.dragSelectState.start = { x: pointer.x, y: pointer.y };
+				this.dragSelectState.baseSelection = additive ? new Set(this.selectedShapeIds) : new Set();
+				this.dragSelectState.hasDragged = false;
+
+				this.selectionRect.visible(false);
+				this.selectionRect.width(0);
+				this.selectionRect.height(0);
 			}
 			setActiveSandbox(this);
 		});
 
+		this.stage.on("mousemove touchmove", () => {
+			if (!this.dragSelectState.active || !this.dragSelectState.start) {
+				return;
+			}
+			const pointer = this.stage.getPointerPosition();
+			if (!pointer) {
+				return;
+			}
+
+			const dx = pointer.x - this.dragSelectState.start.x;
+			const dy = pointer.y - this.dragSelectState.start.y;
+			if (!this.dragSelectState.hasDragged && Math.hypot(dx, dy) < 6) {
+				return;
+			}
+			this.dragSelectState.hasDragged = true;
+
+			const rect = this.rectFromPoints(this.dragSelectState.start, pointer);
+			this.selectionRect.position({ x: rect.x, y: rect.y });
+			this.selectionRect.size({ width: rect.width, height: rect.height });
+			this.selectionRect.visible(true);
+
+			const hits = this.getShapesIntersectingRect(rect);
+			const nextSelection = new Set(this.dragSelectState.baseSelection);
+			hits.forEach((id) => nextSelection.add(id));
+			this.setSelectedShapes([...nextSelection]);
+		});
+
+		this.stage.on("mouseup touchend", () => {
+			if (!this.dragSelectState.active) {
+				return;
+			}
+
+			if (!this.dragSelectState.hasDragged && !this.dragSelectState.additive) {
+				this.setSelectedShape(null);
+			}
+
+			this.dragSelectState.active = false;
+			this.dragSelectState.start = null;
+			this.dragSelectState.baseSelection = new Set();
+			this.dragSelectState.hasDragged = false;
+			this.selectionRect.visible(false);
+			this.selectionRect.width(0);
+			this.selectionRect.height(0);
+			this.layer.batchDraw();
+		});
+
 		this.layer.draw();
+	}
+
+	rectFromPoints(a, b) {
+		return {
+			x: Math.min(a.x, b.x),
+			y: Math.min(a.y, b.y),
+			width: Math.abs(b.x - a.x),
+			height: Math.abs(b.y - a.y),
+		};
+	}
+
+	rectsIntersect(a, b) {
+		return !(
+			a.x + a.width < b.x ||
+			b.x + b.width < a.x ||
+			a.y + a.height < b.y ||
+			b.y + b.height < a.y
+		);
+	}
+
+	getShapesIntersectingRect(rect) {
+		const ids = [];
+		for (const shape of this.shapes) {
+			if (shape.isShadow) {
+				continue;
+			}
+			if (!shape.group.listening()) {
+				continue;
+			}
+			const bounds = shape.group.getClientRect();
+			if (this.rectsIntersect(rect, bounds)) {
+				ids.push(shape.id);
+			}
+		}
+		return ids;
 	}
 
 	notifyShapesChanged() {
@@ -233,6 +356,76 @@ class Sandbox {
 		return this.shapes.filter((shape) => this.selectedShapeIds.has(shape.id));
 	}
 
+	createAnchorData(vertices, edgeDivisions = 2) {
+		const divisions = clamp(Number(edgeDivisions) || 2, 1, 5);
+		const edgeAnchors = [];
+		const edgeKinds = [];
+
+		for (let i = 0; i < vertices.length; i += 1) {
+			const a = vertices[i];
+			const b = vertices[(i + 1) % vertices.length];
+			for (let step = 1; step < divisions; step += 1) {
+				edgeAnchors.push({
+					x: a.x + ((b.x - a.x) * step) / divisions,
+					y: a.y + ((b.y - a.y) * step) / divisions,
+				});
+				edgeKinds.push(step * 2 === divisions ? "edge-midpoint" : "edge-subdivision");
+			}
+		}
+
+		const centerPoint = { x: 0, y: 0 };
+		return {
+			anchorPoints: [...vertices, ...edgeAnchors, centerPoint],
+			markerKinds: [...vertices.map(() => "corner"), ...edgeKinds, "center"],
+			edgeDivisions: divisions,
+		};
+	}
+
+	rebuildShapeAnchors(shape, edgeDivisions) {
+		if (!shape || shape.isShadow) {
+			return;
+		}
+
+		const anchorData = this.createAnchorData(shape.vertices, edgeDivisions);
+		shape.anchorPoints = anchorData.anchorPoints;
+		shape.markerKinds = anchorData.markerKinds;
+		shape.edgeAnchorDivisions = anchorData.edgeDivisions;
+
+		shape.markers.forEach((marker) => marker.destroy());
+		shape.markers = [];
+
+		const shouldRenderMarkers = shape.group.listening();
+		if (shouldRenderMarkers) {
+			shape.markers = shape.anchorPoints.map((v, idx) => {
+				const markerKind = shape.markerKinds[idx];
+				const marker = new Konva.Circle({
+					x: v.x,
+					y: v.y,
+					radius: markerKind === "corner" ? 4 : 3,
+					fill: markerKind === "corner" ? "#ffffff" : "#e7ebf4",
+					stroke: shape.strokeColor,
+					strokeWidth: 2,
+					listening: false,
+					opacity: markerKind === "corner" ? 1 : 0.85,
+				});
+				shape.group.add(marker);
+				return marker;
+			});
+		}
+
+		this.updateShapeMarkerVisuals(shape, this.selectedShapeIds.has(shape.id));
+	}
+
+	setEdgeAnchorsForSelected(edgeDivisions) {
+		const selectedShapes = this.getSelectedShapes().filter((shape) => !shape.isShadow);
+		if (selectedShapes.length === 0) {
+			return;
+		}
+		selectedShapes.forEach((shape) => this.rebuildShapeAnchors(shape, edgeDivisions));
+		this.layer.batchDraw();
+		this.notifyShapesChanged();
+	}
+
 	applySelectionVisuals() {
 		this.shapes.forEach((shape) => {
 			const selected = this.selectedShapeIds.has(shape.id);
@@ -241,6 +434,7 @@ class Sandbox {
 		});
 		if (activeSandbox === this) {
 			updateColorButtonState();
+			updateEdgeAnchorControlState();
 		}
 		this.layer.batchDraw();
 	}
@@ -401,22 +595,9 @@ class Sandbox {
 		}
 
 		const vertices = regularPolygonVertices(config.sides, config.radius);
-		const edgeMidpoints = [];
-		for (let i = 0; i < vertices.length; i += 1) {
-			const a = vertices[i];
-			const b = vertices[(i + 1) % vertices.length];
-			edgeMidpoints.push({
-				x: (a.x + b.x) / 2,
-				y: (a.y + b.y) / 2,
-			});
-		}
-		const centerPoint = { x: 0, y: 0 };
-		const anchorPoints = [...vertices, ...edgeMidpoints, centerPoint];
-		const markerKinds = [
-			...vertices.map(() => "corner"),
-			...edgeMidpoints.map(() => "edge-midpoint"),
-			"center",
-		];
+		const anchorData = this.createAnchorData(vertices, Number(options.edgeAnchorDivisions) || 2);
+		const anchorPoints = anchorData.anchorPoints;
+		const markerKinds = anchorData.markerKinds;
 		const group = new Konva.Group({
 			x: options.x ?? 70 + Math.random() * Math.max(30, this.stage.width() - 140),
 			y: options.y ?? 70 + Math.random() * Math.max(30, this.stage.height() - 140),
@@ -485,6 +666,7 @@ class Sandbox {
 			vertices,
 			anchorPoints,
 			markerKinds,
+			edgeAnchorDivisions: anchorData.edgeDivisions,
 			fillColor: DEFAULT_SHAPE_FILL,
 			strokeColor: DEFAULT_SHAPE_STROKE,
 			isShadow,
@@ -500,6 +682,7 @@ class Sandbox {
 			dragStartPos: null,
 			dragStartScale: 1,
 			dragStartPointerDistance: 0,
+			dragGroupOffsets: null,
 		};
 
 		if (typeof options.fillColor === "string") {
@@ -516,7 +699,9 @@ class Sandbox {
 					this.toggleSelectedShape(shapeModel.id);
 					return;
 				}
-				this.setSelectedShape(shapeModel.id);
+				if (!this.selectedShapeIds.has(shapeModel.id)) {
+					this.setSelectedShape(shapeModel.id);
+				}
 
 				shapeModel.dragMode = "move";
 				shapeModel.dragScaleHandleKind = null;
@@ -568,10 +753,27 @@ class Sandbox {
 
 			group.on("dragstart", () => {
 				setActiveSandbox(this);
-				this.setSelectedShape(shapeModel.id);
+				if (!this.selectedShapeIds.has(shapeModel.id)) {
+					this.setSelectedShape(shapeModel.id);
+				}
 				shapeModel.dragStartPos = { ...group.position() };
 				shapeModel.dragStartScale = group.scaleX() || 1;
 				shapeModel.dragAnchorLocalPoint = null;
+				shapeModel.dragGroupOffsets = null;
+
+				if (shapeModel.dragMode === "move") {
+					const selectedShapes = this.getSelectedShapes().filter((shape) => !shape.isShadow);
+					if (selectedShapes.length > 1 && selectedShapes.some((shape) => shape.id === shapeModel.id)) {
+						const startPos = shapeModel.dragStartPos;
+						shapeModel.dragGroupOffsets = selectedShapes
+							.filter((shape) => shape.id !== shapeModel.id)
+							.map((shape) => ({
+								shape,
+								dx: shape.group.x() - startPos.x,
+								dy: shape.group.y() - startPos.y,
+							}));
+					}
+				}
 
 				if (
 					shapeModel.dragMode === "scale" &&
@@ -685,6 +887,15 @@ class Sandbox {
 
 						this.updateShapeMarkerVisuals(shapeModel, shapeModel.id === this.selectedShapeId);
 					}
+				} else if (shapeModel.dragGroupOffsets && shapeModel.dragGroupOffsets.length > 0) {
+					this.snapShape(shapeModel);
+					const leadPos = shapeModel.group.position();
+					shapeModel.dragGroupOffsets.forEach(({ shape, dx, dy }) => {
+						shape.group.position({
+							x: leadPos.x + dx,
+							y: leadPos.y + dy,
+						});
+					});
 				} else {
 					this.snapShape(shapeModel);
 				}
@@ -704,6 +915,7 @@ class Sandbox {
 				shapeModel.dragStartPos = null;
 				shapeModel.dragStartScale = group.scaleX() || 1;
 				shapeModel.dragStartPointerDistance = 0;
+				shapeModel.dragGroupOffsets = null;
 				this.notifyShapesChanged();
 			});
 		}
@@ -876,15 +1088,41 @@ class Sandbox {
 		this.notifyShapesChanged();
 	}
 
+	deleteSelected() {
+		const selectedShapes = this.getSelectedShapes().filter((shape) => !shape.isShadow);
+		if (selectedShapes.length === 0) {
+			const activeShape = this.getShapeById(this.selectedShapeId);
+			if (activeShape && !activeShape.isShadow) {
+				this.deleteShapeById(activeShape.id);
+			}
+			return;
+		}
+
+		selectedShapes.forEach((shape) => {
+			this.deleteShapeById(shape.id);
+		});
+	}
+
 	applyColorToSelected(color) {
-		const activeShape = this.getShapeById(this.selectedShapeId);
-		if (!activeShape) {
+		let targetShapes = this.getSelectedShapes().filter((shape) => !shape.isShadow);
+		if (targetShapes.length === 0) {
+			const activeShape = this.getShapeById(this.selectedShapeId);
+			if (activeShape && !activeShape.isShadow) {
+				targetShapes = [activeShape];
+			}
+		}
+
+		if (targetShapes.length === 0) {
 			return;
 		}
-		if (this.canChangeShapeColor && !this.canChangeShapeColor(activeShape, color)) {
-			return;
-		}
-		this.setShapeColor(activeShape, color);
+
+		targetShapes.forEach((shape) => {
+			if (this.canChangeShapeColor && !this.canChangeShapeColor(shape, color)) {
+				return;
+			}
+			this.setShapeColor(shape, color);
+		});
+
 		this.layer.batchDraw();
 		updateColorButtonState();
 		this.notifyShapesChanged();
@@ -1036,14 +1274,64 @@ function updateColorButtonState() {
 	});
 }
 
+function formatEdgeAnchorDivisionsLabel(divisions) {
+	const n = clamp(Number(divisions) || 2, 1, 5);
+	if (n === 1) {
+		return "none";
+	}
+	if (n === 2) {
+		return "midpoint";
+	}
+	if (n === 3) {
+		return "thirds";
+	}
+	if (n === 4) {
+		return "quarters";
+	}
+	return "fifths";
+}
+
+function updateEdgeAnchorControlState() {
+	if (!edgeAnchorDivisionsInput || !edgeAnchorLabel) {
+		return;
+	}
+
+	const selectedShapes = activeSandbox?.getSelectedShapes().filter((shape) => !shape.isShadow) || [];
+	if (selectedShapes.length === 0) {
+		edgeAnchorDivisionsInput.disabled = true;
+		edgeAnchorDivisionsInput.value = "2";
+		edgeAnchorLabel.textContent = formatEdgeAnchorDivisionsLabel(2);
+		return;
+	}
+
+	edgeAnchorDivisionsInput.disabled = false;
+	const values = selectedShapes.map((shape) => shape.edgeAnchorDivisions || 2);
+	const first = values[0];
+	const uniform = values.every((value) => value === first);
+	if (uniform) {
+		edgeAnchorDivisionsInput.value = String(first);
+		edgeAnchorLabel.textContent = formatEdgeAnchorDivisionsLabel(first);
+	} else {
+		edgeAnchorLabel.textContent = "mixed";
+	}
+}
+
 function addColorButtons() {
-	COLOR_CHOICES.forEach((color) => {
+	COLOR_CHOICES.forEach((color, index) => {
 		const button = document.createElement("button");
 		button.type = "button";
 		button.className = "color-swatch";
 		button.style.background = color;
+		const rgb = hexToRgb(color);
+		const luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+		button.style.color = luminance < 140 ? "#d1d5db" : "#111827";
+		button.style.textShadow = luminance < 140 ? "0 1px 2px rgba(0,0,0,0.5)" : "0 1px 1px rgba(255,255,255,0.6)";
+		const shortcutLabel = index === 9 ? "0" : String(index + 1);
+		button.textContent = shortcutLabel;
 		button.dataset.color = color;
-		button.setAttribute("aria-label", `Set color ${color}`);
+		button.dataset.shortcut = shortcutLabel;
+		button.setAttribute("aria-label", `Set color ${color} (${shortcutLabel})`);
+		button.title = `Key ${shortcutLabel}`;
 		button.addEventListener("click", () => {
 			const sandbox = ensureActiveSandbox();
 			sandbox?.applyColorToSelected(color);
@@ -1054,6 +1342,17 @@ function addColorButtons() {
 	updateColorButtonState();
 }
 
+function getColorIndexFromKeyboardEvent(event) {
+	const key = event.key;
+	if (key >= "1" && key <= "9") {
+		return Number(key) - 1;
+	}
+	if (key === "0") {
+		return 9;
+	}
+	return -1;
+}
+
 function downloadText(filename, content) {
 	const blob = new Blob([content], { type: "application/json" });
 	const link = document.createElement("a");
@@ -1061,6 +1360,46 @@ function downloadText(filename, content) {
 	link.download = filename;
 	link.click();
 	URL.revokeObjectURL(link.href);
+}
+
+async function saveSceneAsFile(content) {
+	const suggestedName = "polygon-scene.json";
+
+	if (window.showSaveFilePicker) {
+		try {
+			const handle = await window.showSaveFilePicker({
+				suggestedName,
+				types: [
+					{
+						description: "JSON Files",
+						accept: { "application/json": [".json"] },
+					},
+				],
+			});
+			const writable = await handle.createWritable();
+			await writable.write(content);
+			await writable.close();
+			return;
+		} catch (error) {
+			if (error?.name === "AbortError") {
+				return;
+			}
+		}
+	}
+
+	let fileName = window.prompt("Save scene as:", suggestedName);
+	if (fileName == null) {
+		return;
+	}
+	fileName = fileName.trim();
+	if (!fileName) {
+		fileName = suggestedName;
+	}
+	if (!fileName.toLowerCase().endsWith(".json")) {
+		fileName += ".json";
+	}
+
+	downloadText(fileName, content);
 }
 
 function serializeShapeAbsolute(shapeModel) {
@@ -1083,7 +1422,16 @@ function serializeSandboxShapes(sandbox) {
 	return sandbox.shapes.filter((shape) => !shape.isShadow).map(serializeShapeAbsolute);
 }
 
-function serializeAllScene() {
+function getOutputShapesForSceneSave() {
+	const original = safeGetLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY);
+	if (original && Array.isArray(original.shapes)) {
+		return original.shapes;
+	}
+	return serializeSandboxShapes(outputSandbox);
+}
+
+function serializeAllScene(options = {}) {
+	const useOriginalOutputForSave = Boolean(options.useOriginalOutputForSave);
 	return {
 		version: 2,
 		rules: rules.map((rule) => {
@@ -1111,7 +1459,9 @@ function serializeAllScene() {
 			};
 		}),
 		output: {
-			shapes: serializeSandboxShapes(outputSandbox),
+			shapes: useOriginalOutputForSave
+				? getOutputShapesForSceneSave()
+				: serializeSandboxShapes(outputSandbox),
 		},
 	};
 }
@@ -1168,12 +1518,76 @@ function normalizeRotation(degrees) {
 	return result;
 }
 
+function waitMs(ms) {
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+}
+
+function getOutputShapeCount() {
+	if (!outputSandbox) {
+		return 0;
+	}
+	return outputSandbox.shapes.filter((shape) => !shape.isShadow).length;
+}
+
+function getPlayMaxShapes() {
+	const parsed = Number.parseInt(playMaxShapesInput?.value || "", 10);
+	if (!Number.isFinite(parsed) || parsed < 1) {
+		return 500;
+	}
+	return parsed;
+}
+
+function getPlayDelayMs() {
+	const parsed = Number.parseInt(playDelayMsInput?.value || "", 10);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		return 120;
+	}
+	return 500 - clamp(parsed, 0, 500);
+}
+
+function shouldDisablePlayButton() {
+	if (isAutoPlaying) {
+		return false;
+	}
+	if (!playStoppedAtMax) {
+		return false;
+	}
+	return getOutputShapeCount() >= getPlayMaxShapes();
+}
+
+function refreshPlayStoppedAtMaxState() {
+	if (playStoppedAtMax && getOutputShapeCount() < getPlayMaxShapes()) {
+		playStoppedAtMax = false;
+	}
+}
+
+function updatePlayButtonVisualState() {
+	if (!playRulesBtn) {
+		return;
+	}
+	playRulesBtn.textContent = isAutoPlaying ? "■" : "▶";
+	playRulesBtn.title = isAutoPlaying ? "Stop play" : "Play iterations";
+}
+
 function setOutputActionButtonsEnabled(enabled) {
+	const controlsEnabled = enabled && !isAutoPlaying;
+	refreshPlayStoppedAtMaxState();
 	if (applyRulesBtn) {
-		applyRulesBtn.disabled = !enabled;
+		applyRulesBtn.disabled = !controlsEnabled;
 	}
 	if (resetOutputBtn) {
-		resetOutputBtn.disabled = !enabled;
+		resetOutputBtn.disabled = !controlsEnabled;
+	}
+	if (playMaxShapesInput) {
+		playMaxShapesInput.disabled = !controlsEnabled;
+	}
+	if (playDelayMsInput) {
+		playDelayMsInput.disabled = !controlsEnabled;
+	}
+	if (playRulesBtn) {
+		playRulesBtn.disabled = shouldDisablePlayButton();
 	}
 }
 
@@ -1284,6 +1698,70 @@ async function applyRulesToOutput() {
 	}
 }
 
+async function playRulesToLimit() {
+	if (!outputSandbox || isAutoPlaying) {
+		return;
+	}
+
+	playStoppedAtMax = false;
+	isAutoPlaying = true;
+	autoPlayRunToken += 1;
+	const runToken = autoPlayRunToken;
+	updatePlayButtonVisualState();
+	setOutputActionButtonsEnabled(true);
+
+	try {
+		let stoppedByMax = false;
+		while (isAutoPlaying && runToken === autoPlayRunToken) {
+			const maxShapes = getPlayMaxShapes();
+			const beforeCount = getOutputShapeCount();
+			if (beforeCount >= maxShapes) {
+				stoppedByMax = true;
+				break;
+			}
+
+			const beforeSignature = JSON.stringify(serializeSandboxShapes(outputSandbox));
+			await applyRulesToOutput();
+			const afterCount = getOutputShapeCount();
+			const afterSignature = JSON.stringify(serializeSandboxShapes(outputSandbox));
+
+			if (afterCount >= maxShapes) {
+				stoppedByMax = true;
+				break;
+			}
+			if (afterSignature === beforeSignature) {
+				break;
+			}
+
+			const delayMs = getPlayDelayMs();
+			if (delayMs > 0) {
+				await waitMs(delayMs);
+			}
+		}
+		playStoppedAtMax = stoppedByMax;
+	} finally {
+		isAutoPlaying = false;
+		updatePlayButtonVisualState();
+		setOutputActionButtonsEnabled(true);
+	}
+}
+
+function togglePlayRules() {
+	if (shouldDisablePlayButton()) {
+		return;
+	}
+
+	if (isAutoPlaying) {
+		isAutoPlaying = false;
+		playStoppedAtMax = false;
+		autoPlayRunToken += 1;
+		updatePlayButtonVisualState();
+		setOutputActionButtonsEnabled(true);
+		return;
+	}
+	playRulesToLimit();
+}
+
 function resetOutputFromStorage() {
 	if (!outputSandbox) {
 		return;
@@ -1304,6 +1782,8 @@ function resetOutputFromStorage() {
 	});
 	outputSandbox.layer.batchDraw();
 	outputSandbox.notifyShapesChanged();
+	playStoppedAtMax = false;
+	setOutputActionButtonsEnabled(true);
 	clearApplyRunState();
 }
 
@@ -1432,6 +1912,7 @@ function syncRuleBaseShadow(rule) {
 
 	const baseShape = rule.baseSandbox.shapes.find((shape) => !shape.isShadow) || null;
 	let shadowShape = rule.patternSandbox.shapes.find((shape) => shape.isShadow && shape.shadowKind === "base-shadow") || null;
+	const baseEdgeDivisions = Number(baseShape?.edgeAnchorDivisions) || 2;
 
 	if (!baseShape) {
 		if (shadowShape) {
@@ -1440,7 +1921,11 @@ function syncRuleBaseShadow(rule) {
 		return;
 	}
 
-	if (!shadowShape || shadowShape.typeId !== baseShape.typeId) {
+	if (
+		!shadowShape ||
+		shadowShape.typeId !== baseShape.typeId ||
+		(Number(shadowShape.edgeAnchorDivisions) || 2) !== baseEdgeDivisions
+	) {
 		if (shadowShape) {
 			rule.patternSandbox.deleteShapeById(shadowShape.id);
 		}
@@ -1450,6 +1935,7 @@ function syncRuleBaseShadow(rule) {
 			y: baseShape.group.y(),
 			rotation: baseShape.group.rotation(),
 			scale: baseShape.group.scaleX() || 1,
+			edgeAnchorDivisions: baseEdgeDivisions,
 			fillColor: baseShape.fillColor,
 			isShadow: true,
 			shadowKind: "base-shadow",
@@ -1485,6 +1971,15 @@ function isBaseComboTaken(shapeId, color, currentRule) {
 		}
 		return baseShape.typeId === shapeId && baseShape.fillColor === color;
 	});
+}
+
+function getUnusedBaseColor(shapeId, currentRule) {
+	for (const color of COLOR_CHOICES) {
+		if (!isBaseComboTaken(shapeId, color, currentRule)) {
+			return color;
+		}
+	}
+	return null;
 }
 
 function loadAllSceneData(sceneData) {
@@ -1578,10 +2073,13 @@ function createRuleCard() {
 			canSpawnShape: isBaseWorkspace
 				? (shapeConfig, options) => {
 					const rule = getRuleByBaseSandbox(sandbox);
-					const spawnColor =
-						typeof options.fillColor === "string" ? options.fillColor : DEFAULT_SHAPE_FILL;
+					const spawnColor = typeof options.fillColor === "string" ? options.fillColor : DEFAULT_SHAPE_FILL;
 					if (isBaseComboTaken(shapeConfig.id, spawnColor, rule)) {
-						return false;
+						const replacementColor = getUnusedBaseColor(shapeConfig.id, rule);
+						if (!replacementColor) {
+							return false;
+						}
+						options.fillColor = replacementColor;
 					}
 					return true;
 				}
@@ -1635,6 +2133,7 @@ async function handleLoadFile(event) {
 
 addSpawnButtons();
 addColorButtons();
+updateEdgeAnchorControlState();
 addRuleButtonEl.type = "button";
 addRuleButtonEl.className = "add-rule-btn rules-add-btn";
 addRuleButtonEl.textContent = "+";
@@ -1684,14 +2183,76 @@ scaleUpBtn?.addEventListener("click", () => {
 	ensureActiveSandbox()?.scaleSelected(SCALE_STEP_UP);
 });
 
-saveBtn.addEventListener("click", () => {
-	downloadText("polygon-scene.json", JSON.stringify(serializeAllScene(), null, 2));
+edgeAnchorDivisionsInput?.addEventListener("input", () => {
+	const divisions = Number.parseInt(edgeAnchorDivisionsInput.value, 10);
+	const sandbox = ensureActiveSandbox();
+	if (!sandbox || !Number.isFinite(divisions)) {
+		return;
+	}
+	sandbox.setEdgeAnchorsForSelected(divisions);
+	edgeAnchorLabel.textContent = formatEdgeAnchorDivisionsLabel(divisions);
+});
+
+playMaxShapesInput?.addEventListener("input", () => {
+	setOutputActionButtonsEnabled(true);
+});
+
+window.addEventListener("keydown", (event) => {
+	const target = event.target;
+	if (target instanceof HTMLElement) {
+		const tag = target.tagName;
+		if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) {
+			return;
+		}
+	}
+
+	const sandbox = ensureActiveSandbox();
+
+	const key = event.key.toLowerCase();
+	if (key === "q" || key === "e") {
+		if (!sandbox) {
+			return;
+		}
+		event.preventDefault();
+		const step = getRotateStepDegrees(sandbox);
+		sandbox.rotateSelected(key === "q" ? -step : step);
+		return;
+	}
+
+	if (event.key === "Backspace" || event.key === "Delete") {
+		if (!sandbox) {
+			return;
+		}
+		event.preventDefault();
+		sandbox.deleteSelected();
+		return;
+	}
+
+	const colorIndex = getColorIndexFromKeyboardEvent(event);
+	if (colorIndex < 0 || colorIndex >= COLOR_CHOICES.length) {
+		return;
+	}
+
+	if (!sandbox?.selectedShapeId) {
+		return;
+	}
+
+	event.preventDefault();
+	sandbox.applyColorToSelected(COLOR_CHOICES[colorIndex]);
+});
+
+saveBtn.addEventListener("click", async () => {
+	const content = JSON.stringify(serializeAllScene({ useOriginalOutputForSave: true }), null, 2);
+	await saveSceneAsFile(content);
 });
 
 loadBtn.addEventListener("click", () => loadInput.click());
 loadInput.addEventListener("change", handleLoadFile);
 applyRulesBtn?.addEventListener("click", applyRulesToOutput);
 resetOutputBtn?.addEventListener("click", resetOutputFromStorage);
+playRulesBtn?.addEventListener("click", togglePlayRules);
+updatePlayButtonVisualState();
+setOutputActionButtonsEnabled(true);
 
 window.addEventListener("resize", () => {
 	for (const sandbox of sandboxes) {
