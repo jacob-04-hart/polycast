@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Polygon Snap Sandbox</title>
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700&display=swap"
+			rel="stylesheet"
+		/>
+		<style>
+			:root {
+				--bg: #f6f7fb;
+				--panel: #ffffff;
+				--ink: #1f2633;
+				--muted: #6f7889;
+				--accent: #ff6f3c;
+				--accent-soft: #ffd8c9;
+				--border: #dbe1eb;
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			body {
+				margin: 0;
+				min-height: 100vh;
+				font-family: "Outfit", sans-serif;
+				color: var(--ink);
+				background:
+					radial-gradient(circle at 0% 0%, #fff7f0 0%, transparent 38%),
+					radial-gradient(circle at 100% 100%, #e7efff 0%, transparent 45%),
+					var(--bg);
+				display: block;
+				padding: 1rem;
+			}
+
+			.app {
+				width: 100%;
+				display: grid;
+				grid-template-columns: 320px max-content minmax(600px, 1fr);
+				gap: 1rem;
+				align-items: start;
+			}
+
+			.panel,
+			.workspace {
+				background: var(--panel);
+				border: 1px solid var(--border);
+				border-radius: 18px;
+				box-shadow: 0 8px 30px rgba(15, 25, 43, 0.08);
+			}
+
+			.panel {
+				padding: 1rem;
+				display: flex;
+				flex-direction: column;
+				gap: 1rem;
+				position: sticky;
+				top: 1rem;
+			}
+
+			h1 {
+				font-size: 1.35rem;
+				margin: 0;
+			}
+
+			.controls {
+				display: grid;
+				gap: 0.6rem;
+			}
+
+			.control-group {
+				display: grid;
+				gap: 0.55rem;
+				padding-top: 0.35rem;
+				border-top: 1px dashed var(--border);
+			}
+
+			.group-title {
+				font-size: 0.88rem;
+				letter-spacing: 0.03em;
+				text-transform: uppercase;
+				color: var(--muted);
+				font-weight: 700;
+			}
+
+			.controls button {
+				border: 1px solid var(--border);
+				background: #fff;
+				padding: 0.72rem 0.9rem;
+				border-radius: 11px;
+				font: inherit;
+				text-align: left;
+				cursor: pointer;
+				transition: 160ms ease;
+			}
+
+			.controls button:hover {
+				border-color: var(--accent);
+				background: var(--accent-soft);
+				transform: translateY(-1px);
+			}
+
+			.row {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 0.6rem;
+			}
+
+			.color-grid {
+				display: grid;
+				grid-template-columns: repeat(4, minmax(0, 1fr));
+				gap: 0.45rem;
+			}
+
+			.color-swatch {
+				width: 100%;
+				height: 34px;
+				border: 2px solid #d7dce7;
+				border-radius: 10px;
+				padding: 0;
+				cursor: pointer;
+				transition: transform 140ms ease, border-color 140ms ease;
+			}
+
+			.color-swatch:hover {
+				transform: translateY(-1px);
+				border-color: #2b3140;
+			}
+
+			.color-swatch.active {
+				border-color: #1f2633;
+				box-shadow: 0 0 0 2px #1f263322;
+			}
+
+			.danger {
+				margin-top: auto;
+				border: none;
+				border-radius: 11px;
+				padding: 0.72rem 0.9rem;
+				background: #2b3140;
+				color: #fff;
+				font: inherit;
+				cursor: pointer;
+			}
+
+			.rules-area {
+				display: grid;
+				gap: 0.9rem;
+				align-content: start;
+				justify-self: start;
+			}
+
+			.rule-card {
+				background: var(--panel);
+				border: 1px solid var(--border);
+				border-radius: 18px;
+				padding: 0.85rem;
+				box-shadow: 0 8px 30px rgba(15, 25, 43, 0.08);
+				display: grid;
+				gap: 0.7rem;
+				width: max-content;
+				position: relative;
+			}
+
+			.rule-remove-btn {
+				position: absolute;
+				top: 0.38rem;
+				right: 0.42rem;
+				border: 1px solid var(--border);
+				background: #fff;
+				font: inherit;
+				font-size: 0.95rem;
+				line-height: 1;
+				width: 24px;
+				height: 24px;
+				border-radius: 8px;
+				cursor: pointer;
+			}
+
+			.rule-remove-btn:hover {
+				border-color: var(--accent);
+				background: var(--accent-soft);
+			}
+
+			.add-rule-btn {
+				border: 1px solid var(--border);
+				background: #fff;
+				font: inherit;
+				font-size: 1.2rem;
+				line-height: 1;
+				width: 32px;
+				height: 32px;
+				border-radius: 10px;
+				cursor: pointer;
+			}
+
+			.rules-add-btn {
+				justify-self: center;
+			}
+
+			.rule-workspaces {
+				display: grid;
+				grid-template-columns: repeat(2, 280px);
+				gap: 0.7rem;
+				max-width: none;
+			}
+
+			.workspace {
+				width: 280px;
+				aspect-ratio: 1 / 1;
+				min-height: 280px;
+				max-height: 280px;
+				border-radius: 14px;
+				border: 1px solid #e5e9f1;
+				background:
+					linear-gradient(90deg, rgba(15, 25, 43, 0.07) 1px, transparent 1px) 0 0 / 26px 26px,
+					linear-gradient(rgba(15, 25, 43, 0.07) 1px, transparent 1px) 0 0 / 26px 26px,
+					#fdfdff;
+			}
+
+			.output-panel {
+				background: var(--panel);
+				border: 1px solid var(--border);
+				border-radius: 18px;
+				box-shadow: 0 8px 30px rgba(15, 25, 43, 0.08);
+				padding: 1rem;
+				position: sticky;
+				top: 1rem;
+				display: grid;
+				grid-template-rows: auto 1fr;
+				gap: 0.12rem;
+				height: calc(100vh - 2rem);
+				min-height: 360px;
+			}
+
+			.output-actions {
+				display: grid;
+				grid-template-columns: auto auto;
+				align-items: center;
+				gap: 0.35rem;
+			}
+
+			.output-btn {
+				border: 1px solid var(--border);
+				background: #fff;
+				border-radius: 8px;
+				padding: 0.35rem 0.55rem;
+				font: inherit;
+				font-size: 0.82rem;
+				line-height: 1.1;
+				cursor: pointer;
+				transition: 150ms ease;
+			}
+
+			.output-btn:hover {
+				border-color: var(--accent);
+				background: var(--accent-soft);
+			}
+
+			.output-window {
+				min-height: 0;
+				border-radius: 12px;
+				border: 1px dashed #cbd3e2;
+				background: linear-gradient(180deg, #ffffff, #f8faff);
+				padding: 0;
+				display: flex;
+				flex: 1;
+				overflow: hidden;
+			}
+
+			.output-workspace {
+				width: 100%;
+				min-height: 0;
+				height: 100%;
+				max-height: none;
+				aspect-ratio: auto;
+				flex: 1;
+			}
+
+			@media (max-width: 1320px) {
+				.app {
+					grid-template-columns: 320px minmax(0, 1fr);
+				}
+
+				.output-panel {
+					grid-column: 1 / -1;
+					position: static;
+					min-height: 220px;
+				}
+
+				.output-window {
+					min-height: 140px;
+				}
+			}
+
+			@media (max-width: 900px) {
+				.app {
+					grid-template-columns: 1fr;
+				}
+
+				.panel {
+					position: static;
+				}
+
+				.rule-workspaces {
+					grid-template-columns: 1fr;
+				}
+
+				.workspace {
+					width: 100%;
+					max-height: none;
+					min-height: 200px;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<main class="app">
+			<section class="panel">
+				<div>
+					<h1>Polygon Snap Sandbox</h1>
+				</div>
+
+				<div class="controls" id="spawn-controls"></div>
+
+				<div class="control-group">
+					<div class="group-title">Rotate Selected</div>
+					<div class="row">
+						<button id="rotate-left-btn" type="button">Rotate CC</button>
+						<button id="rotate-right-btn" type="button">Rotate CW</button>
+					</div>
+				</div>
+
+				<div class="control-group">
+					<div class="group-title">Scale Selected</div>
+					<div class="row">
+						<button id="scale-down-btn" type="button">Scale -</button>
+						<button id="scale-up-btn" type="button">Scale +</button>
+					</div>
+				</div>
+
+				<div class="control-group">
+					<div class="group-title">Color Selected</div>
+					<div id="color-controls" class="color-grid"></div>
+				</div>
+
+				<div class="control-group">
+					<div class="group-title">Scene JSON</div>
+					<div class="row">
+						<button id="save-btn" type="button">Save Scene</button>
+						<button id="load-btn" type="button">Load Scene</button>
+					</div>
+					<input id="load-input" type="file" accept="application/json" hidden />
+				</div>
+
+				<button id="clear-btn" class="danger">Clear Canvas</button>
+				<button id="clear-all-btn" class="danger" type="button">Clear Tools + Output</button>
+			</section>
+
+			<section class="rules-area" id="rules-container">
+				<!-- Rules are rendered by main.js -->
+			</section>
+
+			<aside class="output-panel">
+				<div class="output-actions">
+					<button id="apply-rules-btn" class="output-btn" type="button">Apply Rules</button>
+					<button id="reset-output-btn" class="output-btn" type="button">Reset Output</button>
+				</div>
+				<div class="output-window">
+					<div id="output-workspace" class="workspace output-workspace"></div>
+				</div>
+			</aside>
+		</main>
+
+		<script src="https://cdn.jsdelivr.net/npm/konva@9.3.14/konva.min.js"></script>
+		<script src="./main.js"></script>
+	</body>
+</html>
