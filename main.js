@@ -263,6 +263,113 @@ class Sandbox {
 		);
 	}
 
+	pointInRect(point, rect) {
+		return (
+			point.x >= rect.x &&
+			point.x <= rect.x + rect.width &&
+			point.y >= rect.y &&
+			point.y <= rect.y + rect.height
+		);
+	}
+
+	pointInPolygon(point, polygon) {
+		let inside = false;
+		for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+			const xi = polygon[i].x;
+			const yi = polygon[i].y;
+			const xj = polygon[j].x;
+			const yj = polygon[j].y;
+			const intersects =
+				yi > point.y !== yj > point.y &&
+				point.x < ((xj - xi) * (point.y - yi)) / ((yj - yi) || Number.EPSILON) + xi;
+			if (intersects) {
+				inside = !inside;
+			}
+		}
+		return inside;
+	}
+
+	segmentsIntersect(a1, a2, b1, b2) {
+		const orientation = (p, q, r) => {
+			const value = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+			if (Math.abs(value) < 1e-9) {
+				return 0;
+			}
+			return value > 0 ? 1 : 2;
+		};
+
+		const onSegment = (p, q, r) => {
+			return (
+				q.x <= Math.max(p.x, r.x) &&
+				q.x >= Math.min(p.x, r.x) &&
+				q.y <= Math.max(p.y, r.y) &&
+				q.y >= Math.min(p.y, r.y)
+			);
+		};
+
+		const o1 = orientation(a1, a2, b1);
+		const o2 = orientation(a1, a2, b2);
+		const o3 = orientation(b1, b2, a1);
+		const o4 = orientation(b1, b2, a2);
+
+		if (o1 !== o2 && o3 !== o4) {
+			return true;
+		}
+
+		if (o1 === 0 && onSegment(a1, b1, a2)) {
+			return true;
+		}
+		if (o2 === 0 && onSegment(a1, b2, a2)) {
+			return true;
+		}
+		if (o3 === 0 && onSegment(b1, a1, b2)) {
+			return true;
+		}
+		if (o4 === 0 && onSegment(b1, a2, b2)) {
+			return true;
+		}
+
+		return false;
+	}
+
+	polygonIntersectsRect(polygon, rect) {
+		if (!Array.isArray(polygon) || polygon.length < 3) {
+			return false;
+		}
+
+		if (polygon.some((point) => this.pointInRect(point, rect))) {
+			return true;
+		}
+
+		const rectCorners = [
+			{ x: rect.x, y: rect.y },
+			{ x: rect.x + rect.width, y: rect.y },
+			{ x: rect.x + rect.width, y: rect.y + rect.height },
+			{ x: rect.x, y: rect.y + rect.height },
+		];
+		if (rectCorners.some((corner) => this.pointInPolygon(corner, polygon))) {
+			return true;
+		}
+
+		const rectEdges = [
+			[rectCorners[0], rectCorners[1]],
+			[rectCorners[1], rectCorners[2]],
+			[rectCorners[2], rectCorners[3]],
+			[rectCorners[3], rectCorners[0]],
+		];
+		for (let i = 0; i < polygon.length; i += 1) {
+			const a = polygon[i];
+			const b = polygon[(i + 1) % polygon.length];
+			for (const [r1, r2] of rectEdges) {
+				if (this.segmentsIntersect(a, b, r1, r2)) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
 	getShapesIntersectingRect(rect) {
 		const ids = [];
 		for (const shape of this.shapes) {
@@ -272,8 +379,8 @@ class Sandbox {
 			if (!shape.group.listening()) {
 				continue;
 			}
-			const bounds = shape.group.getClientRect();
-			if (this.rectsIntersect(rect, bounds)) {
+			const polygon = this.worldVertices(shape);
+			if (this.polygonIntersectsRect(polygon, rect)) {
 				ids.push(shape.id);
 			}
 		}
@@ -326,6 +433,21 @@ class Sandbox {
 			marker.scaleX(inverseScale * smallScaleFactor);
 			marker.scaleY(inverseScale * smallScaleFactor);
 		});
+	}
+
+	getStrokeWidthForShape(shape, selected = false) {
+		const scale = Math.abs(shape?.group?.scaleX?.() || 1);
+		const adaptiveScale = clamp(scale, 0.35, 1);
+		const baseWidth = selected ? 5 : 3;
+		const minWidth = selected ? 0.7 : 0.45;
+		return Math.max(minWidth, baseWidth * adaptiveScale);
+	}
+
+	updateShapeStrokeVisual(shape, selected = false) {
+		if (!shape?.polygon) {
+			return;
+		}
+		shape.polygon.strokeWidth(this.getStrokeWidthForShape(shape, selected));
 	}
 
 	setSelectedShape(shapeId) {
@@ -440,7 +562,7 @@ class Sandbox {
 	applySelectionVisuals() {
 		this.shapes.forEach((shape) => {
 			const selected = this.selectedShapeIds.has(shape.id);
-			shape.polygon.strokeWidth(selected ? 5 : 3);
+			this.updateShapeStrokeVisual(shape, selected);
 			this.updateShapeMarkerVisuals(shape, selected);
 		});
 		if (activeSandbox === this) {
@@ -598,6 +720,7 @@ class Sandbox {
 	spawnShape(config, options = {}) {
 		const isShadow = Boolean(options.isShadow);
 		const isReadOnly = Boolean(options.isReadOnly);
+		const hideOutline = Boolean(options.hideOutline);
 		if (!isShadow && this.canSpawnShape && !this.canSpawnShape(config, options)) {
 			return null;
 		}
@@ -625,6 +748,7 @@ class Sandbox {
 			fill: DEFAULT_SHAPE_FILL,
 			stroke: DEFAULT_SHAPE_STROKE,
 			strokeWidth: 3,
+			strokeScaleEnabled: false,
 			lineJoin: "round",
 			...(isReadOnly ? {} : {
 				shadowColor: "#1f2633",
@@ -634,6 +758,9 @@ class Sandbox {
 			}),
 			opacity: isShadow ? 0.4 : 1,
 		});
+		if (hideOutline) {
+			polygon.strokeEnabled(false);
+		}
 		group.add(polygon);
 
 		const arrowTailY = config.radius * 0.2;
@@ -898,6 +1025,7 @@ class Sandbox {
 							});
 						}
 
+						this.updateShapeStrokeVisual(shapeModel, shapeModel.id === this.selectedShapeId);
 						this.updateShapeMarkerVisuals(shapeModel, shapeModel.id === this.selectedShapeId);
 					}
 				} else if (shapeModel.dragGroupOffsets && shapeModel.dragGroupOffsets.length > 0) {
@@ -1067,6 +1195,7 @@ class Sandbox {
 		const nextScale = clamp(currentScale * factor, MIN_SHAPE_SCALE, MAX_SHAPE_SCALE);
 		activeShape.group.scaleX(nextScale);
 		activeShape.group.scaleY(nextScale);
+		this.updateShapeStrokeVisual(activeShape, activeShape.id === this.selectedShapeId);
 		this.updateShapeMarkerVisuals(activeShape, activeShape.id === this.selectedShapeId);
 		this.snapShape(activeShape);
 		this.layer.batchDraw();
@@ -1707,7 +1836,7 @@ async function applyRulesToOutput() {
 		// Bulk clear and reload
 		outputSandbox.clearAllShapes();
 		transformedShapes.forEach((shapeData) => {
-			spawnFromSerializedShape(outputSandbox, shapeData, { isReadOnly: true });
+			spawnFromSerializedShape(outputSandbox, shapeData, { isReadOnly: true, hideOutline: true });
 		});
 		outputSandbox.layer.batchDraw();
 		outputSandbox.notifyShapesChanged();
@@ -1797,7 +1926,7 @@ function resetOutputFromStorage() {
 
 	outputSandbox.clearAllShapes();
 	original.shapes.forEach((shapeData) => {
-		spawnFromSerializedShape(outputSandbox, shapeData);
+		spawnFromSerializedShape(outputSandbox, shapeData, { hideOutline: true });
 	});
 	outputSandbox.layer.batchDraw();
 	outputSandbox.notifyShapesChanged();
@@ -1912,6 +2041,7 @@ function spawnFromSerializedShape(sandbox, serializedShape, options = {}) {
 			: Number(serializedShape.scale) || 1,
 		fillColor: typeof serializedShape.color === "string" ? serializedShape.color : DEFAULT_SHAPE_FILL,
 		isReadOnly: Boolean(options.isReadOnly),
+		hideOutline: Boolean(options.hideOutline),
 	};
 
 	if (Number.isFinite(resolvedX)) {
@@ -2054,7 +2184,7 @@ function loadAllSceneData(sceneData) {
 	if (outputSandbox) {
 		outputSandbox.clearAllShapes();
 		sceneData.output.shapes.forEach((shapeData) => {
-			spawnFromSerializedShape(outputSandbox, shapeData);
+			spawnFromSerializedShape(outputSandbox, shapeData, { hideOutline: true });
 		});
 	}
 
