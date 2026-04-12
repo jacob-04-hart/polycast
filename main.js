@@ -63,6 +63,8 @@ let autoPlayRunToken = 0;
 let playStoppedAtMax = false;
 let outputArrowsVisible = true;
 let outputTinyShapesPurged = true;
+let isResettingOutput = false;
+let draggingRule = null;
 
 function regularPolygonVertices(sides, radius) {
 	const points = [];
@@ -1950,8 +1952,7 @@ async function applyRulesToOutput() {
 
 	try {
 		const sceneSnapshot = serializeAllScene();
-		const existingOriginal = safeGetLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY);
-		if (!existingOriginal || !Array.isArray(existingOriginal.shapes)) {
+		if (!isAutoPlaying) {
 			safeSetLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY, { shapes: serializeSandboxShapes(outputSandbox) });
 		}
 
@@ -1990,6 +1991,8 @@ async function playRulesToLimit() {
 	if (!outputSandbox || isAutoPlaying) {
 		return;
 	}
+
+	safeSetLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY, { shapes: serializeSandboxShapes(outputSandbox) });
 
 	playStoppedAtMax = false;
 	isAutoPlaying = true;
@@ -2055,24 +2058,29 @@ function resetOutputFromStorage() {
 
 	const original = safeGetLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY);
 	if (!original || !Array.isArray(original.shapes)) {
-		clearApplyRunState();
 		return;
 	}
 
-	outputSandbox.clearAllShapes();
-	filterVisibleOutputShapes(original.shapes).forEach((shapeData) => {
-		spawnFromSerializedShape(outputSandbox, shapeData, {
-			hideOutline: true,
-			showOrientationArrow: outputArrowsVisible,
-			wrapPosition: true,
+	isResettingOutput = true;
+	try {
+		outputSandbox.clearAllShapes();
+		filterVisibleOutputShapes(original.shapes).forEach((shapeData) => {
+			spawnFromSerializedShape(outputSandbox, shapeData, {
+				isReadOnly: false,
+				hideOutline: true,
+				showOrientationArrow: outputArrowsVisible,
+				wrapPosition: true,
+			});
 		});
-	});
-	applyTinyShapePurgeToOutputSandbox();
-	outputSandbox.layer.batchDraw();
-	outputSandbox.notifyShapesChanged();
-	playStoppedAtMax = false;
-	setOutputActionButtonsEnabled(true);
-	clearApplyRunState();
+		applyTinyShapePurgeToOutputSandbox();
+		outputSandbox.layer.batchDraw();
+		outputSandbox.notifyShapesChanged();
+		setActiveSandbox(outputSandbox);
+		playStoppedAtMax = false;
+		setOutputActionButtonsEnabled(true);
+	} finally {
+		isResettingOutput = false;
+	}
 }
 
 function removeSandbox(sandbox) {
@@ -2139,6 +2147,31 @@ function moveRule(rule, direction) {
 		});
 	}
 
+	updateRuleButtons();
+}
+
+function reorderRulesInDom() {
+	if (!rulesContainerEl) {
+		return;
+	}
+	rules.forEach((ruleModel) => {
+		rulesContainerEl.appendChild(ruleModel.cardEl);
+	});
+}
+
+function moveRuleToIndex(rule, toIndex) {
+	const fromIndex = rules.indexOf(rule);
+	if (fromIndex < 0) {
+		return;
+	}
+	const clampedToIndex = clamp(toIndex, 0, rules.length - 1);
+	if (clampedToIndex === fromIndex) {
+		return;
+	}
+
+	const [moved] = rules.splice(fromIndex, 1);
+	rules.splice(clampedToIndex, 0, moved);
+	reorderRulesInDom();
 	updateRuleButtons();
 }
 
@@ -2258,8 +2291,32 @@ function updateRuleButtons() {
 			rule.duplicateBtnEl = duplicateButton;
 		}
 
+		if (!rule.dragHandleBtnEl) {
+			const dragHandleButton = document.createElement("button");
+			dragHandleButton.type = "button";
+			dragHandleButton.className = "rule-drag-handle-btn";
+			dragHandleButton.textContent = "↕";
+			dragHandleButton.setAttribute("aria-label", "Drag to reorder rule");
+			dragHandleButton.draggable = true;
+			dragHandleButton.addEventListener("dragstart", (event) => {
+				draggingRule = rule;
+				rule.cardEl.classList.add("rule-dragging");
+				if (event.dataTransfer) {
+					event.dataTransfer.effectAllowed = "move";
+					event.dataTransfer.setData("text/plain", "rule-reorder");
+				}
+			});
+			dragHandleButton.addEventListener("dragend", () => {
+				rule.cardEl.classList.remove("rule-dragging");
+				rules.forEach((r) => r.cardEl.classList.remove("rule-drop-target"));
+				draggingRule = null;
+			});
+			rule.dragHandleBtnEl = dragHandleButton;
+		}
+
 		rule.moveUpBtnEl.disabled = index === 0;
 		rule.moveDownBtnEl.disabled = index === rules.length - 1;
+		rule.cardEl.appendChild(rule.dragHandleBtnEl);
 		rule.cardEl.appendChild(rule.duplicateBtnEl);
 		rule.cardEl.appendChild(rule.moveUpBtnEl);
 		rule.cardEl.appendChild(rule.moveDownBtnEl);
@@ -2489,12 +2546,46 @@ function createRuleCard() {
 		baseSandbox,
 		patternSandbox,
 		removeBtnEl: null,
+		dragHandleBtnEl: null,
 		duplicateBtnEl: null,
 		moveUpBtnEl: null,
 		moveDownBtnEl: null,
 	};
 	rules.push(ruleModel);
-	baseSandbox.setShapesChangedHandler(() => syncRuleBaseShadow(ruleModel));
+
+	card.addEventListener("dragover", (event) => {
+		if (!draggingRule || draggingRule === ruleModel) {
+			return;
+		}
+		event.preventDefault();
+		card.classList.add("rule-drop-target");
+	});
+
+	card.addEventListener("dragleave", () => {
+		card.classList.remove("rule-drop-target");
+	});
+
+	card.addEventListener("drop", (event) => {
+		if (!draggingRule || draggingRule === ruleModel) {
+			return;
+		}
+		event.preventDefault();
+		card.classList.remove("rule-drop-target");
+		const targetIndex = rules.indexOf(ruleModel);
+		moveRuleToIndex(draggingRule, targetIndex);
+	});
+
+	baseSandbox.setShapesChangedHandler(() => {
+		syncRuleBaseShadow(ruleModel);
+		if (!isApplyingRules && !isAutoPlaying) {
+			clearApplyRunState();
+		}
+	});
+	patternSandbox.setShapesChangedHandler(() => {
+		if (!isApplyingRules && !isAutoPlaying) {
+			clearApplyRunState();
+		}
+	});
 	syncRuleBaseShadow(ruleModel);
 	updateRuleButtons();
 

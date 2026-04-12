@@ -275,6 +275,31 @@
 				cursor: pointer;
 			}
 
+			.rule-drag-handle-btn {
+				position: absolute;
+				top: 0.38rem;
+				right: 7.74rem;
+				border: 1px dashed var(--border);
+				background: var(--surface-soft);
+				color: var(--ink);
+				font: inherit;
+				font-size: 0.9rem;
+				line-height: 1;
+				width: 24px;
+				height: 24px;
+				border-radius: 8px;
+				cursor: grab;
+			}
+
+			.rule-dragging {
+				opacity: 0.7;
+			}
+
+			.rule-drop-target {
+				outline: 2px dashed var(--accent);
+				outline-offset: 4px;
+			}
+
 			.rule-remove-btn:hover {
 				border-color: var(--accent);
 				background: var(--accent-soft);
@@ -286,6 +311,11 @@
 			}
 
 			.rule-duplicate-btn:hover {
+				border-color: var(--accent);
+				background: var(--accent-soft);
+			}
+
+			.rule-drag-handle-btn:hover {
 				border-color: var(--accent);
 				background: var(--accent-soft);
 			}
