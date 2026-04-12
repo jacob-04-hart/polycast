@@ -236,9 +236,64 @@
 				cursor: pointer;
 			}
 
+			.rule-move-btn {
+				position: absolute;
+				top: 0.38rem;
+				border: 1px solid var(--border);
+				background: var(--surface);
+				color: var(--ink);
+				font: inherit;
+				font-size: 0.9rem;
+				line-height: 1;
+				width: 24px;
+				height: 24px;
+				border-radius: 8px;
+				cursor: pointer;
+			}
+
+			.rule-move-up-btn {
+				right: 2.25rem;
+			}
+
+			.rule-move-down-btn {
+				right: 4.08rem;
+			}
+
+			.rule-duplicate-btn {
+				position: absolute;
+				top: 0.38rem;
+				right: 5.91rem;
+				border: 1px solid var(--border);
+				background: var(--surface);
+				color: var(--ink);
+				font: inherit;
+				font-size: 0.9rem;
+				line-height: 1;
+				width: 24px;
+				height: 24px;
+				border-radius: 8px;
+				cursor: pointer;
+			}
+
 			.rule-remove-btn:hover {
 				border-color: var(--accent);
 				background: var(--accent-soft);
+			}
+
+			.rule-move-btn:hover {
+				border-color: var(--accent);
+				background: var(--accent-soft);
+			}
+
+			.rule-duplicate-btn:hover {
+				border-color: var(--accent);
+				background: var(--accent-soft);
+			}
+
+			.rule-move-btn:disabled {
+				opacity: 0.4;
+				cursor: not-allowed;
+				filter: grayscale(0.5);
 			}
 
 			.add-rule-btn {
@@ -255,6 +310,10 @@
 			}
 
 			.rules-add-btn {
+				position: sticky;
+				top: 0.7rem;
+				z-index: 5;
+				align-self: start;
 				justify-self: center;
 			}
 
@@ -322,6 +381,39 @@
 			.output-icon-btn:hover {
 				border-color: var(--accent);
 				background: var(--accent-soft);
+			}
+
+			.output-toggle-btn {
+				border: 1px solid var(--border);
+				background: var(--surface-soft);
+				color: var(--ink);
+				border-radius: 999px;
+				padding: 0.28rem 0.65rem;
+				font: inherit;
+				font-size: 0.72rem;
+				line-height: 1;
+				letter-spacing: 0.01em;
+				cursor: pointer;
+				transition: 150ms ease;
+			}
+
+			.output-toggle-btn:hover {
+				border-color: var(--accent);
+				background: var(--accent-soft);
+			}
+
+			.output-toggle-btn[aria-pressed="true"] {
+				border-color: var(--accent);
+				background: var(--accent-soft);
+			}
+
+			.output-icon-btn[aria-pressed="true"] {
+				border-color: var(--accent);
+				background: var(--accent-soft);
+			}
+
+			.output-icon-btn[aria-pressed="false"] {
+				opacity: 0.72;
 			}
 
 			.output-icon-btn:disabled {
@@ -478,6 +570,8 @@
 						<button id="apply-rules-btn" class="output-icon-btn" type="button" title="Iterate once">⟳</button>
 						<button id="reset-output-btn" class="output-icon-btn" type="button" title="Reset output">↺</button>
 						<button id="play-rules-btn" class="output-icon-btn" type="button" title="Play iterations">▶</button>
+						<button id="toggle-output-arrows-btn" class="output-toggle-btn" type="button" title="Toggle arrows">arrows on</button>
+						<button id="toggle-output-tiny-shapes-btn" class="output-toggle-btn" type="button" title="Toggle tiny shape purge">tiny purge on</button>
 						<label class="output-max" for="play-max-shapes">
 							<span>max</span>
 							<input id="play-max-shapes" type="number" min="1" step="1" value="500" />

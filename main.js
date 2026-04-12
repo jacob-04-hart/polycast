@@ -6,13 +6,15 @@ const palette = [
 	{ id: "octagon", sides: 8, radius: 62 },
 ];
 
-const COLOR_CHOICES = ["#ef4444", "#f97316", "#facc15", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#9ca3af", "#111111"];
-const DEFAULT_SHAPE_FILL = "#c5cad4";
+const COLOR_CHOICES = ["#ef4444", "#f97316", "#facc15", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#c5cad4", "#111111"];
+const DEFAULT_SHAPE_FILL = COLOR_CHOICES[Math.max(0, COLOR_CHOICES.length - 2)] || "#c5cad4";
 const DEFAULT_SHAPE_STROKE = "#646d7d";
 const VERTEX_SNAP_DISTANCE = 13;
 const EDGE_SNAP_DISTANCE = 16;
 const EDGE_ANGLE_TOLERANCE_DEG = 10;
 const WORKSPACES_PER_RULE = 2;
+const MIN_OUTPUT_VISIBLE_RADIUS_PX = 1.5;
+const MIN_PLAY_DELAY_MS = 10;
 
 const paletteById = new Map(palette.map((item) => [item.id, item]));
 const controlsEl = document.getElementById("spawn-controls");
@@ -33,6 +35,8 @@ const outputWorkspaceEl = document.getElementById("output-workspace");
 const applyRulesBtn = document.getElementById("apply-rules-btn");
 const resetOutputBtn = document.getElementById("reset-output-btn");
 const playRulesBtn = document.getElementById("play-rules-btn");
+const toggleOutputArrowsBtn = document.getElementById("toggle-output-arrows-btn");
+const toggleOutputTinyShapesBtn = document.getElementById("toggle-output-tiny-shapes-btn");
 const playMaxShapesInput = document.getElementById("play-max-shapes");
 const playDelayMsInput = document.getElementById("play-delay-ms");
 const addRuleButtonEl = document.createElement("button");
@@ -57,6 +61,8 @@ let isApplyingRules = false;
 let isAutoPlaying = false;
 let autoPlayRunToken = 0;
 let playStoppedAtMax = false;
+let outputArrowsVisible = true;
+let outputTinyShapesPurged = true;
 
 function regularPolygonVertices(sides, radius) {
 	const points = [];
@@ -120,6 +126,14 @@ function transformLocalPointToWorld(localPoint, group) {
 	const worldX = scaledX * cos - scaledY * sin + group.x();
 	const worldY = scaledX * sin + scaledY * cos + group.y();
 	return { x: worldX, y: worldY };
+}
+
+function wrapCoordinate(value, size) {
+	if (!Number.isFinite(value) || !Number.isFinite(size) || size <= 0) {
+		return value;
+	}
+	const wrapped = value % size;
+	return wrapped < 0 ? wrapped + size : wrapped;
 }
 
 class Sandbox {
@@ -721,6 +735,8 @@ class Sandbox {
 		const isShadow = Boolean(options.isShadow);
 		const isReadOnly = Boolean(options.isReadOnly);
 		const hideOutline = Boolean(options.hideOutline);
+		const showOrientationArrow = options.showOrientationArrow !== false;
+		const wrapPosition = Boolean(options.wrapPosition);
 		if (!isShadow && this.canSpawnShape && !this.canSpawnShape(config, options)) {
 			return null;
 		}
@@ -733,8 +749,18 @@ class Sandbox {
 		const anchorPoints = anchorData.anchorPoints;
 		const markerKinds = anchorData.markerKinds;
 		const group = new Konva.Group({
-			x: options.x ?? 70 + Math.random() * Math.max(30, this.stage.width() - 140),
-			y: options.y ?? 70 + Math.random() * Math.max(30, this.stage.height() - 140),
+			x: wrapPosition
+				? wrapCoordinate(
+					options.x ?? 70 + Math.random() * Math.max(30, this.stage.width() - 140),
+					this.stage.width(),
+				)
+				: options.x ?? 70 + Math.random() * Math.max(30, this.stage.width() - 140),
+			y: wrapPosition
+				? wrapCoordinate(
+					options.y ?? 70 + Math.random() * Math.max(30, this.stage.height() - 140),
+					this.stage.height(),
+				)
+				: options.y ?? 70 + Math.random() * Math.max(30, this.stage.height() - 140),
 			rotation: options.rotation ?? 0,
 			scaleX: Number.isFinite(Number(options.scale)) ? Number(options.scale) : 1,
 			scaleY: Number.isFinite(Number(options.scale)) ? Number(options.scale) : 1,
@@ -777,6 +803,7 @@ class Sandbox {
 			opacity: isShadow ? 0.14 : 0.2,
 			listening: false,
 		});
+		orientationArrow.visible(showOrientationArrow);
 		group.add(orientationArrow);
 
 		const markers = isReadOnly ? [] : anchorPoints.map((v, idx) => {
@@ -800,6 +827,7 @@ class Sandbox {
 			typeId: config.id,
 			group,
 			polygon,
+			orientationArrow,
 			markers,
 			vertices,
 			anchorPoints,
@@ -1270,10 +1298,22 @@ class Sandbox {
 		this.notifyShapesChanged();
 	}
 
-	clearAllShapes() {
-		this.shapes.forEach((shape) => shape.group.destroy());
-		this.shapes.length = 0;
-		this.nonShadowShapeCount = 0;
+	clearAllShapes(options = {}) {
+		const preserveShadows = Boolean(options.preserveShadows);
+		if (preserveShadows) {
+			this.shapes = this.shapes.filter((shape) => {
+				if (shape.isShadow) {
+					return true;
+				}
+				shape.group.destroy();
+				return false;
+			});
+			this.nonShadowShapeCount = 0;
+		} else {
+			this.shapes.forEach((shape) => shape.group.destroy());
+			this.shapes.length = 0;
+			this.nonShadowShapeCount = 0;
+		}
 		this.selectedShapeId = null;
 		this.selectedShapeIds.clear();
 		if (activeSandbox === this) {
@@ -1679,6 +1719,29 @@ function getOutputShapeCount() {
 	return outputSandbox.shapes.filter((shape) => !shape.isShadow).length;
 }
 
+function isOutputShapeVisibleEnough(shapeData) {
+	if (!shapeData || typeof shapeData !== "object") {
+		return false;
+	}
+	const shapeId = shapeData.shape || shapeData.typeId;
+	const shapeConfig = paletteById.get(shapeId);
+	if (!shapeConfig) {
+		return true;
+	}
+	const scale = Math.abs(Number(shapeData.scale) || 1);
+	return shapeConfig.radius * scale >= MIN_OUTPUT_VISIBLE_RADIUS_PX;
+}
+
+function filterVisibleOutputShapes(shapes) {
+	if (!Array.isArray(shapes)) {
+		return [];
+	}
+	if (!outputTinyShapesPurged) {
+		return shapes.slice();
+	}
+	return shapes.filter((shapeData) => isOutputShapeVisibleEnough(shapeData));
+}
+
 function getPlayMaxShapes() {
 	const parsed = Number.parseInt(playMaxShapesInput?.value || "", 10);
 	if (!Number.isFinite(parsed) || parsed < 1) {
@@ -1692,7 +1755,7 @@ function getPlayDelayMs() {
 	if (!Number.isFinite(parsed) || parsed < 0) {
 		return 120;
 	}
-	return 500 - clamp(parsed, 0, 500);
+	return Math.max(MIN_PLAY_DELAY_MS, 500 - clamp(parsed, 0, 500));
 }
 
 function shouldDisablePlayButton() {
@@ -1739,12 +1802,83 @@ function setOutputActionButtonsEnabled(enabled) {
 	}
 }
 
+function updateOutputArrowsToggleButton() {
+	if (!toggleOutputArrowsBtn) {
+		return;
+	}
+	toggleOutputArrowsBtn.textContent = outputArrowsVisible ? "arrows on" : "arrows off";
+	toggleOutputArrowsBtn.title = outputArrowsVisible ? "Hide arrows" : "Show arrows";
+	toggleOutputArrowsBtn.setAttribute("aria-pressed", outputArrowsVisible ? "true" : "false");
+}
+
+function updateOutputTinyShapesToggleButton() {
+	if (!toggleOutputTinyShapesBtn) {
+		return;
+	}
+	toggleOutputTinyShapesBtn.textContent = outputTinyShapesPurged ? "tiny purge on" : "tiny purge off";
+	toggleOutputTinyShapesBtn.title = outputTinyShapesPurged ? "Stop purging tiny shapes" : "Purge tiny shapes";
+	toggleOutputTinyShapesBtn.setAttribute("aria-pressed", outputTinyShapesPurged ? "true" : "false");
+}
+
+function applyTinyShapePurgeToOutputSandbox() {
+	if (!outputSandbox || !outputTinyShapesPurged) {
+		return;
+	}
+	const shapesToDelete = outputSandbox.shapes
+		.filter((shape) => !shape.isShadow)
+		.filter((shape) => !isOutputShapeVisibleEnough(serializeShapeAbsolute(shape)));
+	shapesToDelete.forEach((shape) => {
+		outputSandbox.deleteShapeById(shape.id);
+	});
+	outputSandbox.layer.batchDraw();
+}
+
+function setOutputTinyShapesPurged(enabled) {
+	outputTinyShapesPurged = Boolean(enabled);
+	updateOutputTinyShapesToggleButton();
+	applyTinyShapePurgeToOutputSandbox();
+}
+
+function setOutputArrowsVisible(visible) {
+	outputArrowsVisible = Boolean(visible);
+	if (outputSandbox) {
+		outputSandbox.shapes.forEach((shape) => {
+			shape.orientationArrow?.visible(outputArrowsVisible);
+		});
+		outputSandbox.layer.batchDraw();
+	}
+	updateOutputArrowsToggleButton();
+}
+
+function normalizeColorForMatch(color) {
+	if (typeof color !== "string") {
+		return "";
+	}
+	return color.trim().toLowerCase();
+}
+
+function getRandomMatchingRule(outputShape, rulesWithBase) {
+	const outputShapeId = outputShape?.shape || outputShape?.typeId || "";
+	const outputColor = normalizeColorForMatch(outputShape?.color);
+	const exactMatches = rulesWithBase.filter(
+		(rule) => {
+			const ruleShapeId = rule?.base?.shape || rule?.base?.typeId || "";
+			if (ruleShapeId !== outputShapeId) {
+				return false;
+			}
+			return normalizeColorForMatch(rule?.base?.color) === outputColor;
+		},
+	);
+	if (exactMatches.length > 0) {
+		return exactMatches[Math.floor(Math.random() * exactMatches.length)];
+	}
+	return null;
+}
+
 function transformOutputShapeByRules(outputShape, rulesWithBase, matchedRule = null) {
 	let rule = matchedRule;
 	if (!rule) {
-		rule = rulesWithBase.find(
-			(r) => r.base.shape === outputShape.shape && r.base.color === outputShape.color,
-		);
+		rule = getRandomMatchingRule(outputShape, rulesWithBase);
 	}
 
 	if (!rule) {
@@ -1790,7 +1924,7 @@ function buildOutputFromRules(sceneSnapshot) {
 	}
 
 	const rulesWithBase = sceneSnapshot.rules.filter(
-		(rule) => rule && rule.base && Array.isArray(rule.pattern) && rule.pattern.length > 0,
+		(rule) => rule && rule.base && (rule.base.shape || rule.base.typeId) && Array.isArray(rule.pattern),
 	);
 
 	const sourceOutputShapes = Array.isArray(sceneSnapshot.output.shapes) ? sceneSnapshot.output.shapes : [];
@@ -1800,7 +1934,7 @@ function buildOutputFromRules(sceneSnapshot) {
 		nextOutputShapes.push(...transformOutputShapeByRules(outputShape, rulesWithBase));
 	}
 
-	return nextOutputShapes;
+	return filterVisibleOutputShapes(nextOutputShapes);
 }
 
 async function applyRulesToOutput() {
@@ -1836,8 +1970,14 @@ async function applyRulesToOutput() {
 		// Bulk clear and reload
 		outputSandbox.clearAllShapes();
 		transformedShapes.forEach((shapeData) => {
-			spawnFromSerializedShape(outputSandbox, shapeData, { isReadOnly: true, hideOutline: true });
+			spawnFromSerializedShape(outputSandbox, shapeData, {
+				isReadOnly: true,
+				hideOutline: true,
+				showOrientationArrow: outputArrowsVisible,
+				wrapPosition: true,
+			});
 		});
+		applyTinyShapePurgeToOutputSandbox();
 		outputSandbox.layer.batchDraw();
 		outputSandbox.notifyShapesChanged();
 	} finally {
@@ -1863,21 +2003,16 @@ async function playRulesToLimit() {
 		while (isAutoPlaying && runToken === autoPlayRunToken) {
 			const maxShapes = getPlayMaxShapes();
 			const beforeCount = getOutputShapeCount();
-			if (beforeCount >= maxShapes) {
+			if (beforeCount > maxShapes) {
 				stoppedByMax = true;
 				break;
 			}
 
-			const beforeSignature = JSON.stringify(serializeSandboxShapes(outputSandbox));
 			await applyRulesToOutput();
 			const afterCount = getOutputShapeCount();
-			const afterSignature = JSON.stringify(serializeSandboxShapes(outputSandbox));
 
-			if (afterCount >= maxShapes) {
+			if (afterCount > maxShapes) {
 				stoppedByMax = true;
-				break;
-			}
-			if (afterSignature === beforeSignature) {
 				break;
 			}
 
@@ -1925,9 +2060,14 @@ function resetOutputFromStorage() {
 	}
 
 	outputSandbox.clearAllShapes();
-	original.shapes.forEach((shapeData) => {
-		spawnFromSerializedShape(outputSandbox, shapeData, { hideOutline: true });
+	filterVisibleOutputShapes(original.shapes).forEach((shapeData) => {
+		spawnFromSerializedShape(outputSandbox, shapeData, {
+			hideOutline: true,
+			showOrientationArrow: outputArrowsVisible,
+			wrapPosition: true,
+		});
 	});
+	applyTinyShapePurgeToOutputSandbox();
 	outputSandbox.layer.batchDraw();
 	outputSandbox.notifyShapesChanged();
 	playStoppedAtMax = false;
@@ -1965,7 +2105,7 @@ function removeLastRule() {
 
 function removeRule(rule) {
 	const index = rules.indexOf(rule);
-	if (index <= 0) {
+	if (index < 0 || rules.length <= 1) {
 		return;
 	}
 
@@ -1981,16 +2121,94 @@ function removeRule(rule) {
 	}
 }
 
+function moveRule(rule, direction) {
+	const fromIndex = rules.indexOf(rule);
+	if (fromIndex < 0) {
+		return;
+	}
+	const toIndex = fromIndex + direction;
+	if (toIndex < 0 || toIndex >= rules.length) {
+		return;
+	}
+
+	[rules[fromIndex], rules[toIndex]] = [rules[toIndex], rules[fromIndex]];
+
+	if (rulesContainerEl) {
+		rules.forEach((ruleModel) => {
+			rulesContainerEl.appendChild(ruleModel.cardEl);
+		});
+	}
+
+	updateRuleButtons();
+}
+
+function duplicateRule(rule) {
+	const sourceIndex = rules.indexOf(rule);
+	if (sourceIndex < 0) {
+		return;
+	}
+
+	const sourceBaseShape = rule.baseSandbox.shapes.find((shape) => !shape.isShadow) || null;
+	const sourceBase = sourceBaseShape ? serializeShapeAbsolute(sourceBaseShape) : null;
+	const sourceBasePosition = sourceBaseShape
+		? { x: sourceBaseShape.group.x(), y: sourceBaseShape.group.y() }
+		: { x: 0, y: 0 };
+	const sourceBaseScale = sourceBaseShape ? sourceBaseShape.group.scaleX() || 1 : 1;
+	const sourcePattern = rule.patternSandbox.shapes
+		.filter((shapeModel) => !shapeModel.isShadow)
+		.map((shapeModel) => ({
+			shape: shapeModel.typeId,
+			color: shapeModel.fillColor,
+			rotation: shapeModel.group.rotation(),
+			relativeScale: (shapeModel.group.scaleX() || 1) / sourceBaseScale,
+			relativePosition: {
+				x: shapeModel.group.x() - sourceBasePosition.x,
+				y: shapeModel.group.y() - sourceBasePosition.y,
+			},
+		}));
+
+	const card = createRuleCard();
+	const duplicatedRule = rules[rules.length - 1] || null;
+	if (!duplicatedRule) {
+		return;
+	}
+
+	duplicatedRule.baseSandbox.clearAllShapes();
+	duplicatedRule.patternSandbox.clearAllShapes();
+
+	if (sourceBase) {
+		spawnFromSerializedShape(duplicatedRule.baseSandbox, sourceBase);
+	}
+
+	const duplicatedBaseShape = duplicatedRule.baseSandbox.shapes.find((shape) => !shape.isShadow) || null;
+	const duplicatedBasePosition = duplicatedBaseShape
+		? { x: duplicatedBaseShape.group.x(), y: duplicatedBaseShape.group.y() }
+		: { x: 0, y: 0 };
+	const duplicatedBaseScale = duplicatedBaseShape ? duplicatedBaseShape.group.scaleX() || 1 : 1;
+
+	sourcePattern.forEach((shapeData) => {
+		const rel = shapeData.relativePosition || { x: 0, y: 0 };
+		spawnFromSerializedShape(duplicatedRule.patternSandbox, shapeData, {
+			x: duplicatedBasePosition.x + Number(rel.x || 0),
+			y: duplicatedBasePosition.y + Number(rel.y || 0),
+			scale: duplicatedBaseScale * (Number(shapeData.relativeScale) || 1),
+		});
+	});
+
+	syncRuleBaseShadow(duplicatedRule);
+
+	while (rules.indexOf(duplicatedRule) > sourceIndex + 1) {
+		moveRule(duplicatedRule, -1);
+	}
+
+	setActiveSandbox(duplicatedRule.baseSandbox);
+	requestAnimationFrame(() => {
+		card?.scrollIntoView({ behavior: "smooth", block: "center" });
+	});
+}
+
 function updateRuleButtons() {
 	rules.forEach((rule, index) => {
-		if (index === 0) {
-			if (rule.removeBtnEl) {
-				rule.removeBtnEl.remove();
-				rule.removeBtnEl = null;
-			}
-			return;
-		}
-
 		if (!rule.removeBtnEl) {
 			const removeButton = document.createElement("button");
 			removeButton.type = "button";
@@ -2002,11 +2220,54 @@ function updateRuleButtons() {
 			});
 			rule.removeBtnEl = removeButton;
 		}
+		rule.removeBtnEl.disabled = rules.length <= 1;
+
+		if (!rule.moveUpBtnEl) {
+			const moveUpButton = document.createElement("button");
+			moveUpButton.type = "button";
+			moveUpButton.className = "rule-move-btn rule-move-up-btn";
+			moveUpButton.textContent = "↑";
+			moveUpButton.setAttribute("aria-label", "Move rule up");
+			moveUpButton.addEventListener("click", () => {
+				moveRule(rule, -1);
+			});
+			rule.moveUpBtnEl = moveUpButton;
+		}
+
+		if (!rule.moveDownBtnEl) {
+			const moveDownButton = document.createElement("button");
+			moveDownButton.type = "button";
+			moveDownButton.className = "rule-move-btn rule-move-down-btn";
+			moveDownButton.textContent = "↓";
+			moveDownButton.setAttribute("aria-label", "Move rule down");
+			moveDownButton.addEventListener("click", () => {
+				moveRule(rule, 1);
+			});
+			rule.moveDownBtnEl = moveDownButton;
+		}
+
+		if (!rule.duplicateBtnEl) {
+			const duplicateButton = document.createElement("button");
+			duplicateButton.type = "button";
+			duplicateButton.className = "rule-duplicate-btn";
+			duplicateButton.textContent = "⧉";
+			duplicateButton.setAttribute("aria-label", "Duplicate rule");
+			duplicateButton.addEventListener("click", () => {
+				duplicateRule(rule);
+			});
+			rule.duplicateBtnEl = duplicateButton;
+		}
+
+		rule.moveUpBtnEl.disabled = index === 0;
+		rule.moveDownBtnEl.disabled = index === rules.length - 1;
+		rule.cardEl.appendChild(rule.duplicateBtnEl);
+		rule.cardEl.appendChild(rule.moveUpBtnEl);
+		rule.cardEl.appendChild(rule.moveDownBtnEl);
 		rule.cardEl.appendChild(rule.removeBtnEl);
 	});
 
 	if (rulesContainerEl) {
-		rulesContainerEl.appendChild(addRuleButtonEl);
+		rulesContainerEl.prepend(addRuleButtonEl);
 	}
 }
 
@@ -2042,6 +2303,8 @@ function spawnFromSerializedShape(sandbox, serializedShape, options = {}) {
 		fillColor: typeof serializedShape.color === "string" ? serializedShape.color : DEFAULT_SHAPE_FILL,
 		isReadOnly: Boolean(options.isReadOnly),
 		hideOutline: Boolean(options.hideOutline),
+		showOrientationArrow: options.showOrientationArrow !== false,
+		wrapPosition: Boolean(options.wrapPosition),
 	};
 
 	if (Number.isFinite(resolvedX)) {
@@ -2109,32 +2372,16 @@ function getRuleByBaseSandbox(sandbox) {
 	return rules.find((rule) => rule.baseSandbox === sandbox) || null;
 }
 
-function isBaseComboTaken(shapeId, color, currentRule) {
-	return rules.some((rule) => {
-		if (rule === currentRule) {
-			return false;
-		}
-		const baseShape = rule.baseSandbox.shapes.find((shape) => !shape.isShadow);
-		if (!baseShape) {
-			return false;
-		}
-		return baseShape.typeId === shapeId && baseShape.fillColor === color;
-	});
-}
-
-function getUnusedBaseColor(shapeId, currentRule) {
-	for (const color of COLOR_CHOICES) {
-		if (!isBaseComboTaken(shapeId, color, currentRule)) {
-			return color;
-		}
-	}
-	return null;
-}
-
 function loadAllSceneData(sceneData) {
 	if (!sceneData || !Array.isArray(sceneData.rules) || !sceneData.output || !Array.isArray(sceneData.output.shapes)) {
 		throw new Error("Invalid scene format.");
 	}
+
+	// Ensure stale autoplay/max-stop state never survives a scene load.
+	isAutoPlaying = false;
+	playStoppedAtMax = false;
+	autoPlayRunToken += 1;
+	updatePlayButtonVisualState();
 
 	clearApplyRunState();
 
@@ -2183,14 +2430,21 @@ function loadAllSceneData(sceneData) {
 
 	if (outputSandbox) {
 		outputSandbox.clearAllShapes();
-		sceneData.output.shapes.forEach((shapeData) => {
-			spawnFromSerializedShape(outputSandbox, shapeData, { hideOutline: true });
+		filterVisibleOutputShapes(sceneData.output.shapes).forEach((shapeData) => {
+			spawnFromSerializedShape(outputSandbox, shapeData, {
+				hideOutline: true,
+				showOrientationArrow: outputArrowsVisible,
+				wrapPosition: true,
+			});
 		});
+		applyTinyShapePurgeToOutputSandbox();
 	}
 
 	if (rules[0]) {
 		setActiveSandbox(rules[0].baseSandbox);
 	}
+
+	setOutputActionButtonsEnabled(true);
 }
 
 function createRuleCard() {
@@ -2219,29 +2473,6 @@ function createRuleCard() {
 		const isBaseWorkspace = entry.workspaceIndex === 0;
 		const sandbox = new Sandbox(entry.workspace, {
 			maxShapes: isBaseWorkspace ? 1 : Infinity,
-			canSpawnShape: isBaseWorkspace
-				? (shapeConfig, options) => {
-					const rule = getRuleByBaseSandbox(sandbox);
-					const spawnColor = typeof options.fillColor === "string" ? options.fillColor : DEFAULT_SHAPE_FILL;
-					if (isBaseComboTaken(shapeConfig.id, spawnColor, rule)) {
-						const replacementColor = getUnusedBaseColor(shapeConfig.id, rule);
-						if (!replacementColor) {
-							return false;
-						}
-						options.fillColor = replacementColor;
-					}
-					return true;
-				}
-				: null,
-			canChangeShapeColor: isBaseWorkspace
-				? (shapeModel, nextColor) => {
-					const rule = getRuleByBaseSandbox(sandbox);
-					if (isBaseComboTaken(shapeModel.typeId, nextColor, rule)) {
-						return false;
-					}
-					return true;
-				}
-				: null,
 		});
 		sandbox.resize();
 		sandboxes.push(sandbox);
@@ -2253,7 +2484,15 @@ function createRuleCard() {
 		entry.workspace.addEventListener("pointerdown", () => setActiveSandbox(sandbox));
 	}
 
-	const ruleModel = { cardEl: card, baseSandbox, patternSandbox, removeBtnEl: null };
+	const ruleModel = {
+		cardEl: card,
+		baseSandbox,
+		patternSandbox,
+		removeBtnEl: null,
+		duplicateBtnEl: null,
+		moveUpBtnEl: null,
+		moveDownBtnEl: null,
+	};
 	rules.push(ruleModel);
 	baseSandbox.setShapesChangedHandler(() => syncRuleBaseShadow(ruleModel));
 	syncRuleBaseShadow(ruleModel);
@@ -2288,7 +2527,14 @@ addRuleButtonEl.className = "add-rule-btn rules-add-btn";
 addRuleButtonEl.textContent = "+";
 addRuleButtonEl.setAttribute("aria-label", "Add another rule");
 addRuleButtonEl.addEventListener("click", () => {
-	createRuleCard();
+	const card = createRuleCard();
+	const newestRule = rules[rules.length - 1] || null;
+	if (newestRule?.baseSandbox) {
+		setActiveSandbox(newestRule.baseSandbox);
+	}
+	requestAnimationFrame(() => {
+		card?.scrollIntoView({ behavior: "smooth", block: "center" });
+	});
 });
 createRuleCard();
 // Prevent stale data from previous browser sessions affecting reset/apply behavior.
@@ -2301,7 +2547,7 @@ if (outputWorkspaceEl) {
 }
 
 clearBtn.addEventListener("click", () => {
-	ensureActiveSandbox()?.clearAllShapes();
+	ensureActiveSandbox()?.clearAllShapes({ preserveShadows: true });
 });
 
 clearAllBtn?.addEventListener("click", () => {
@@ -2311,6 +2557,11 @@ clearAllBtn?.addEventListener("click", () => {
 	rules[0]?.baseSandbox.clearAllShapes();
 	rules[0]?.patternSandbox.clearAllShapes();
 	outputSandbox?.clearAllShapes();
+	isAutoPlaying = false;
+	playStoppedAtMax = false;
+	autoPlayRunToken += 1;
+	updatePlayButtonVisualState();
+	setOutputActionButtonsEnabled(true);
 	clearApplyRunState();
 });
 
@@ -2400,7 +2651,15 @@ loadInput.addEventListener("change", handleLoadFile);
 applyRulesBtn?.addEventListener("click", applyRulesToOutput);
 resetOutputBtn?.addEventListener("click", resetOutputFromStorage);
 playRulesBtn?.addEventListener("click", togglePlayRules);
+toggleOutputArrowsBtn?.addEventListener("click", () => {
+	setOutputArrowsVisible(!outputArrowsVisible);
+});
+toggleOutputTinyShapesBtn?.addEventListener("click", () => {
+	setOutputTinyShapesPurged(!outputTinyShapesPurged);
+});
 updatePlayButtonVisualState();
+updateOutputArrowsToggleButton();
+updateOutputTinyShapesToggleButton();
 setOutputActionButtonsEnabled(true);
 
 window.addEventListener("resize", () => {
