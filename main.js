@@ -1691,6 +1691,17 @@ function clearApplyRunState() {
 	safeRemoveLocalStorage(STORAGE_RULES_SNAPSHOT_KEY);
 }
 
+function ensureOriginalOutputSnapshot() {
+	if (!outputSandbox) {
+		return;
+	}
+	const existingOriginal = safeGetLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY);
+	if (existingOriginal && Array.isArray(existingOriginal.shapes)) {
+		return;
+	}
+	safeSetLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY, { shapes: serializeSandboxShapes(outputSandbox) });
+}
+
 function rotateVector(vector, radians) {
 	const cos = Math.cos(radians);
 	const sin = Math.sin(radians);
@@ -1953,7 +1964,7 @@ async function applyRulesToOutput() {
 	try {
 		const sceneSnapshot = serializeAllScene();
 		if (!isAutoPlaying) {
-			safeSetLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY, { shapes: serializeSandboxShapes(outputSandbox) });
+			ensureOriginalOutputSnapshot();
 		}
 
 		safeSetLocalStorage(STORAGE_RULES_SNAPSHOT_KEY, sceneSnapshot);
@@ -1992,7 +2003,7 @@ async function playRulesToLimit() {
 		return;
 	}
 
-	safeSetLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY, { shapes: serializeSandboxShapes(outputSandbox) });
+	ensureOriginalOutputSnapshot();
 
 	playStoppedAtMax = false;
 	isAutoPlaying = true;
