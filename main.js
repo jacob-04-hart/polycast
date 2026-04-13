@@ -1,6 +1,7 @@
 const palette = [
 	{ id: "triangle", sides: 3, radius: 56 },
 	{ id: "square", sides: 4, radius: 52 },
+	{ id: "line", sides: 2, radius: 60 },
 	{ id: "pentagon", sides: 5, radius: 55 },
 	{ id: "hexagon", sides: 6, radius: 58 },
 	{ id: "octagon", sides: 8, radius: 62 },
@@ -386,6 +387,38 @@ class Sandbox {
 		return false;
 	}
 
+	lineIntersectsRect(linePoints, rect) {
+		if (!Array.isArray(linePoints) || linePoints.length !== 2) {
+			return false;
+		}
+
+		const [a, b] = linePoints;
+		if (this.pointInRect(a, rect) || this.pointInRect(b, rect)) {
+			return true;
+		}
+
+		const rectCorners = [
+			{ x: rect.x, y: rect.y },
+			{ x: rect.x + rect.width, y: rect.y },
+			{ x: rect.x + rect.width, y: rect.y + rect.height },
+			{ x: rect.x, y: rect.y + rect.height },
+		];
+		const rectEdges = [
+			[rectCorners[0], rectCorners[1]],
+			[rectCorners[1], rectCorners[2]],
+			[rectCorners[2], rectCorners[3]],
+			[rectCorners[3], rectCorners[0]],
+		];
+
+		for (const [r1, r2] of rectEdges) {
+			if (this.segmentsIntersect(a, b, r1, r2)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	getShapesIntersectingRect(rect) {
 		const ids = [];
 		for (const shape of this.shapes) {
@@ -396,7 +429,10 @@ class Sandbox {
 				continue;
 			}
 			const polygon = this.worldVertices(shape);
-			if (this.polygonIntersectsRect(polygon, rect)) {
+			if (
+				(polygon.length === 2 && this.lineIntersectsRect(polygon, rect)) ||
+				(polygon.length >= 3 && this.polygonIntersectsRect(polygon, rect))
+			) {
 				ids.push(shape.id);
 			}
 		}
@@ -429,9 +465,18 @@ class Sandbox {
 
 	setShapeColor(shape, fillColor) {
 		shape.fillColor = fillColor;
-		shape.strokeColor = darkenHex(fillColor, 0.4);
-		shape.polygon.fill(shape.fillColor);
-		shape.polygon.stroke(shape.strokeColor);
+		shape.strokeColor = shape.isLine ? fillColor : darkenHex(fillColor, 0.4);
+		if (shape.isLine) {
+			shape.polygon.fillEnabled(false);
+			shape.polygon.stroke(shape.strokeColor);
+			if (shape.orientationArrow) {
+				shape.orientationArrow.stroke(shape.strokeColor);
+				shape.orientationArrow.fill(shape.strokeColor);
+			}
+		} else {
+			shape.polygon.fill(shape.fillColor);
+			shape.polygon.stroke(shape.strokeColor);
+		}
 		shape.markers.forEach((marker) => marker.stroke(shape.strokeColor));
 	}
 
@@ -509,6 +554,24 @@ class Sandbox {
 		const divisions = clamp(Number(edgeDivisions) || 2, 1, 7);
 		const edgeAnchors = [];
 		const edgeKinds = [];
+
+		if (vertices.length === 2) {
+			const a = vertices[0];
+			const b = vertices[1];
+			for (let step = 1; step < divisions; step += 1) {
+				edgeAnchors.push({
+					x: a.x + ((b.x - a.x) * step) / divisions,
+					y: a.y + ((b.y - a.y) * step) / divisions,
+				});
+				edgeKinds.push(step * 2 === divisions ? "edge-midpoint" : "edge-subdivision");
+			}
+
+			return {
+				anchorPoints: [...vertices, ...edgeAnchors],
+				markerKinds: [...vertices.map(() => "corner"), ...edgeKinds],
+				edgeDivisions: divisions,
+			};
+		}
 
 		for (let i = 0; i < vertices.length; i += 1) {
 			const a = vertices[i];
@@ -595,6 +658,31 @@ class Sandbox {
 	worldSnapPoints(shape) {
 		const points = Array.isArray(shape.anchorPoints) && shape.anchorPoints.length > 0 ? shape.anchorPoints : shape.vertices;
 		return points.map((p) => transformLocalPointToWorld(p, shape.group));
+	}
+
+	getClosestSnapPoint(activeShape, worldPoint, maxDistance = VERTEX_SNAP_DISTANCE) {
+		if (!activeShape || !worldPoint || !Number.isFinite(worldPoint.x) || !Number.isFinite(worldPoint.y)) {
+			return null;
+		}
+
+		let bestMatch = null;
+		for (const candidateShape of this.shapes) {
+			if (
+				candidateShape.id === activeShape.id ||
+				(candidateShape.isShadow && candidateShape.shadowKind !== "base-shadow")
+			) {
+				continue;
+			}
+			const candidatePoints = this.worldSnapPoints(candidateShape);
+			for (const candidatePoint of candidatePoints) {
+				const distance = Math.hypot(candidatePoint.x - worldPoint.x, candidatePoint.y - worldPoint.y);
+				if (distance <= maxDistance && (!bestMatch || distance < bestMatch.distance)) {
+					bestMatch = { point: candidatePoint, distance };
+				}
+			}
+		}
+
+		return bestMatch ? bestMatch.point : null;
 	}
 
 	snapScaleAnyVertexToNearbyVertex(activeShape, activeLocalPoint, anchorLocalPoint, anchorWorld, proposedScale) {
@@ -699,6 +787,14 @@ class Sandbox {
 
 	worldEdges(shape) {
 		const vertices = this.worldVertices(shape);
+		if (vertices.length === 2) {
+			const a = vertices[0];
+			const b = vertices[1];
+			return [{
+				midpoint: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+				dir: normalized({ x: b.x - a.x, y: b.y - a.y }),
+			}];
+		}
 		const edges = [];
 		for (let i = 0; i < vertices.length; i += 1) {
 			const a = vertices[i];
@@ -746,7 +842,13 @@ class Sandbox {
 			return null;
 		}
 
-		const vertices = regularPolygonVertices(config.sides, config.radius);
+		const isLineShape = config.id === "line";
+		const vertices = isLineShape
+			? [
+				{ x: -config.radius, y: 0 },
+				{ x: config.radius, y: 0 },
+			]
+			: regularPolygonVertices(config.sides, config.radius);
 		const anchorData = this.createAnchorData(vertices, Number(options.edgeAnchorDivisions) || 2);
 		const anchorPoints = anchorData.anchorPoints;
 		const markerKinds = anchorData.markerKinds;
@@ -772,9 +874,10 @@ class Sandbox {
 
 		const polygon = new Konva.Line({
 			points: toKonvaPointArray(vertices),
-			closed: true,
+			closed: !isLineShape,
 			fill: DEFAULT_SHAPE_FILL,
-			stroke: DEFAULT_SHAPE_STROKE,
+			stroke: isLineShape ? DEFAULT_SHAPE_FILL : DEFAULT_SHAPE_STROKE,
+			hitStrokeWidth: isLineShape ? 18 : undefined,
 			strokeWidth: 3,
 			strokeScaleEnabled: false,
 			lineJoin: "round",
@@ -786,7 +889,10 @@ class Sandbox {
 			}),
 			opacity: isShadow ? 0.4 : 1,
 		});
-		if (hideOutline) {
+		if (isLineShape) {
+			polygon.fillEnabled(false);
+		}
+		if (hideOutline && !isLineShape) {
 			polygon.strokeEnabled(false);
 		}
 		group.add(polygon);
@@ -796,13 +902,13 @@ class Sandbox {
 		const orientationArrow = new Konva.Arrow({
 			x: 0,
 			y: 0,
-			points: [0, arrowTailY, 0, arrowHeadY],
-			pointerLength: Math.max(6, config.radius * 0.14),
-			pointerWidth: Math.max(6, config.radius * 0.14),
-			stroke: "#1f2633",
-			fill: "#1f2633",
+			points: isLineShape ? [-config.radius, 0, config.radius, 0] : [0, arrowTailY, 0, arrowHeadY],
+			pointerLength: isLineShape ? Math.max(10, config.radius * 0.22) : Math.max(6, config.radius * 0.14),
+			pointerWidth: isLineShape ? Math.max(8, config.radius * 0.18) : Math.max(6, config.radius * 0.14),
+			stroke: isLineShape ? DEFAULT_SHAPE_FILL : "#1f2633",
+			fill: isLineShape ? DEFAULT_SHAPE_FILL : "#1f2633",
 			strokeWidth: 2,
-			opacity: isShadow ? 0.14 : 0.2,
+			opacity: isLineShape ? (isShadow ? 0.28 : 1) : isShadow ? 0.14 : 0.2,
 			listening: false,
 		});
 		orientationArrow.visible(showOrientationArrow);
@@ -827,6 +933,7 @@ class Sandbox {
 		const shapeModel = {
 			id: `${config.id}-${crypto.randomUUID()}`,
 			typeId: config.id,
+			isLine: isLineShape,
 			group,
 			polygon,
 			orientationArrow,
@@ -836,7 +943,7 @@ class Sandbox {
 			markerKinds,
 			edgeAnchorDivisions: anchorData.edgeDivisions,
 			fillColor: DEFAULT_SHAPE_FILL,
-			strokeColor: DEFAULT_SHAPE_STROKE,
+			strokeColor: isLineShape ? DEFAULT_SHAPE_FILL : DEFAULT_SHAPE_STROKE,
 			isShadow,
 			shadowKind: options.shadowKind || null,
 			dragMode: "move",
@@ -896,7 +1003,7 @@ class Sandbox {
 						}
 					}
 
-					if (shapeModel.dragMode !== "scale") {
+					if (shapeModel.dragMode !== "scale" && sideCount > 2) {
 						for (let i = 0; i < sideCount; i += 1) {
 							const a = shapeModel.vertices[i];
 							const b = shapeModel.vertices[(i + 1) % sideCount];
@@ -1018,6 +1125,54 @@ class Sandbox {
 				if (shapeModel.dragMode === "scale" && shapeModel.dragStartPos) {
 					const pointer = this.stage.getPointerPosition();
 					if (pointer) {
+						if (
+							shapeModel.isLine &&
+							shapeModel.dragScaleHandleKind === "corner" &&
+							shapeModel.dragAnchorWorld &&
+							shapeModel.dragAnchorLocalPoint &&
+							shapeModel.dragActiveLocalPoint
+						) {
+							const anchorWorld = shapeModel.dragAnchorWorld;
+							const snapPoint = this.getClosestSnapPoint(shapeModel, pointer, VERTEX_SNAP_DISTANCE);
+							const targetPointer = snapPoint || pointer;
+							const localDelta = {
+								x: shapeModel.dragActiveLocalPoint.x - shapeModel.dragAnchorLocalPoint.x,
+								y: shapeModel.dragActiveLocalPoint.y - shapeModel.dragAnchorLocalPoint.y,
+							};
+							const baseLen = Math.hypot(localDelta.x, localDelta.y);
+							const pointerDelta = {
+								x: targetPointer.x - anchorWorld.x,
+								y: targetPointer.y - anchorWorld.y,
+							};
+							const pointerLen = Math.hypot(pointerDelta.x, pointerDelta.y);
+
+							if (baseLen > 0.000001 && pointerLen > 0.000001) {
+								const localAngle = Math.atan2(localDelta.y, localDelta.x);
+								const worldAngle = Math.atan2(pointerDelta.y, pointerDelta.x);
+								const nextRotationDeg = ((worldAngle - localAngle) * 180) / Math.PI;
+								const nextScale = clamp(pointerLen / baseLen, MIN_SHAPE_SCALE, MAX_SHAPE_SCALE);
+
+								group.rotation(nextRotationDeg);
+								group.scaleX(nextScale);
+								group.scaleY(nextScale);
+
+								const angle = degToRad(group.rotation());
+								const cos = Math.cos(angle);
+								const sin = Math.sin(angle);
+								const anchorLocal = shapeModel.dragAnchorLocalPoint;
+								const scaledX = anchorLocal.x * nextScale;
+								const scaledY = anchorLocal.y * nextScale;
+								const rotatedX = scaledX * cos - scaledY * sin;
+								const rotatedY = scaledX * sin + scaledY * cos;
+								group.position({
+									x: anchorWorld.x - rotatedX,
+									y: anchorWorld.y - rotatedY,
+								});
+							}
+
+							this.updateShapeStrokeVisual(shapeModel, shapeModel.id === this.selectedShapeId);
+							this.updateShapeMarkerVisuals(shapeModel, shapeModel.id === this.selectedShapeId);
+						} else {
 						const distanceOrigin = shapeModel.dragAnchorWorld || shapeModel.dragStartPos;
 						const currentDistance = Math.hypot(
 							pointer.x - distanceOrigin.x,
@@ -1057,6 +1212,7 @@ class Sandbox {
 
 						this.updateShapeStrokeVisual(shapeModel, shapeModel.id === this.selectedShapeId);
 						this.updateShapeMarkerVisuals(shapeModel, shapeModel.id === this.selectedShapeId);
+						}
 					}
 				} else if (shapeModel.dragGroupOffsets && shapeModel.dragGroupOffsets.length > 0) {
 					this.snapShape(shapeModel);
@@ -1714,6 +1870,10 @@ function clearApplyRunState() {
 
 function clearRulesSnapshotState() {
 	safeRemoveLocalStorage(STORAGE_RULES_SNAPSHOT_KEY);
+}
+
+function clearOriginalOutputSnapshotState() {
+	safeRemoveLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY);
 }
 
 function ensureOriginalOutputSnapshot() {
@@ -2671,6 +2831,11 @@ if (outputWorkspaceEl) {
 	outputSandbox = new Sandbox(outputWorkspaceEl);
 	outputSandbox.resize();
 	sandboxes.push(outputSandbox);
+	outputSandbox.setShapesChangedHandler(() => {
+		if (!isApplyingRules && !isAutoPlaying && !isResettingOutput) {
+			clearOriginalOutputSnapshotState();
+		}
+	});
 }
 
 clearBtn.addEventListener("click", () => {
