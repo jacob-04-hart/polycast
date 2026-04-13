@@ -553,8 +553,15 @@ class Sandbox {
 
 		const oldScale = this.zoomState.level;
 		const newScale = clamp(oldScale * zoomFactor, this.zoomState.minLevel, this.zoomState.maxLevel);
+		const tryingToZoomOut = zoomFactor < 1;
+		const atMinZoom = oldScale <= this.zoomState.minLevel + 1e-6;
 
-		if (newScale === oldScale) return;
+		if (newScale === oldScale) {
+			if (tryingToZoomOut && atMinZoom) {
+				this.resetZoom();
+			}
+			return;
+		}
 
 		const scaleBy = newScale / oldScale;
 		const newX = point.x - scaleBy * (point.x - this.stage.x());
