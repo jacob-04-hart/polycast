@@ -2937,13 +2937,26 @@ async function handleLoadFile(event) {
 }
 
 async function loadDefaultSceneOnStartup() {
+	const candidateUrls = [];
+	const scriptEl = Array.from(document.scripts).find((script) => /main\.js(?:$|\?)/.test(script.src || ""));
+	if (scriptEl?.src) {
+		candidateUrls.push(new URL("snowflake.json", scriptEl.src).href);
+	}
+	candidateUrls.push(new URL("./snowflake.json", window.location.href).href);
+	candidateUrls.push(new URL("snowflake.json", `${window.location.origin}${window.location.pathname.replace(/[^/]*$/, "")}`).href);
+
+	const uniqueUrls = [...new Set(candidateUrls)];
+
 	try {
-		const response = await fetch("./snowflake.json", { cache: "no-store" });
-		if (!response.ok) {
+		for (const url of uniqueUrls) {
+			const response = await fetch(url, { cache: "no-store" });
+			if (!response.ok) {
+				continue;
+			}
+			const sceneData = await response.json();
+			loadAllSceneData(sceneData);
 			return;
 		}
-		const sceneData = await response.json();
-		loadAllSceneData(sceneData);
 	} catch {
 		// Ignore if the default scene file is unavailable.
 	}
