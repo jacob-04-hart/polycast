@@ -35,6 +35,7 @@ const rulesContainerEl = document.getElementById("rules-container");
 const outputWorkspaceEl = document.getElementById("output-workspace");
 const applyRulesBtn = document.getElementById("apply-rules-btn");
 const resetOutputBtn = document.getElementById("reset-output-btn");
+const resetOutputZoomBtn = document.getElementById("reset-output-zoom-btn");
 const playRulesBtn = document.getElementById("play-rules-btn");
 const toggleOutputArrowsBtn = document.getElementById("toggle-output-arrows-btn");
 const toggleOutputTinyShapesBtn = document.getElementById("toggle-output-tiny-shapes-btn");
@@ -196,7 +197,7 @@ class Sandbox {
 			enabled: Boolean(options.enableZoom),
 			level: 1,
 			minLevel: 1,
-			maxLevel: 5,
+			maxLevel: Infinity,
 			zoomStep: 1.1,
 			panActive: false,
 			panStart: null,
@@ -2309,7 +2310,9 @@ async function applyRulesToOutput() {
 			});
 		});
 		applyTinyShapePurgeToOutputSandbox();
-		outputSandbox.resetZoom();
+		if (!isAutoPlaying) {
+			outputSandbox.resetZoom();
+		}
 		outputSandbox.layer.batchDraw();
 		outputSandbox.notifyShapesChanged();
 	} finally {
@@ -3107,6 +3110,9 @@ loadBtn.addEventListener("click", () => loadInput.click());
 loadInput.addEventListener("change", handleLoadFile);
 applyRulesBtn?.addEventListener("click", applyRulesToOutput);
 resetOutputBtn?.addEventListener("click", resetOutputFromStorage);
+resetOutputZoomBtn?.addEventListener("click", () => {
+	outputSandbox?.resetZoom();
+});
 playRulesBtn?.addEventListener("click", togglePlayRules);
 toggleOutputArrowsBtn?.addEventListener("click", () => {
 	setOutputArrowsVisible(!outputArrowsVisible);
