@@ -2936,6 +2936,19 @@ async function handleLoadFile(event) {
 	loadInput.value = "";
 }
 
+async function loadDefaultSceneOnStartup() {
+	try {
+		const response = await fetch("./snowflake.json", { cache: "no-store" });
+		if (!response.ok) {
+			return;
+		}
+		const sceneData = await response.json();
+		loadAllSceneData(sceneData);
+	} catch {
+		// Ignore if the default scene file is unavailable.
+	}
+}
+
 addSpawnButtons();
 addColorButtons();
 updateEdgeAnchorControlState();
@@ -2967,6 +2980,8 @@ if (outputWorkspaceEl) {
 		}
 	});
 }
+
+loadDefaultSceneOnStartup();
 
 clearBtn.addEventListener("click", () => {
 	ensureActiveSandbox()?.clearAllShapes({ preserveShadows: true });
