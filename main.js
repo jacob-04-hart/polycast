@@ -1686,8 +1686,33 @@ function safeRemoveLocalStorage(key) {
 	}
 }
 
+function getSerializedShapeColor(serializedShape) {
+	if (!serializedShape || typeof serializedShape !== "object") {
+		return DEFAULT_SHAPE_FILL;
+	}
+	if (typeof serializedShape.color === "string" && serializedShape.color.trim()) {
+		return serializedShape.color;
+	}
+	if (typeof serializedShape.fillColor === "string" && serializedShape.fillColor.trim()) {
+		return serializedShape.fillColor;
+	}
+	return DEFAULT_SHAPE_FILL;
+}
+
+function hasValidOutputSnapshot(snapshot) {
+	return Boolean(
+		snapshot &&
+		Array.isArray(snapshot.shapes) &&
+		snapshot.shapes.every((shapeData) => typeof getSerializedShapeColor(shapeData) === "string"),
+	);
+}
+
 function clearApplyRunState() {
 	safeRemoveLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY);
+	safeRemoveLocalStorage(STORAGE_RULES_SNAPSHOT_KEY);
+}
+
+function clearRulesSnapshotState() {
 	safeRemoveLocalStorage(STORAGE_RULES_SNAPSHOT_KEY);
 }
 
@@ -1696,7 +1721,7 @@ function ensureOriginalOutputSnapshot() {
 		return;
 	}
 	const existingOriginal = safeGetLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY);
-	if (existingOriginal && Array.isArray(existingOriginal.shapes)) {
+	if (hasValidOutputSnapshot(existingOriginal)) {
 		return;
 	}
 	safeSetLocalStorage(STORAGE_OUTPUT_ORIGINAL_KEY, { shapes: serializeSandboxShapes(outputSandbox) });
@@ -2368,7 +2393,7 @@ function spawnFromSerializedShape(sandbox, serializedShape, options = {}) {
 		scale: Number.isFinite(Number(options.scale))
 			? Number(options.scale)
 			: Number(serializedShape.scale) || 1,
-		fillColor: typeof serializedShape.color === "string" ? serializedShape.color : DEFAULT_SHAPE_FILL,
+		fillColor: getSerializedShapeColor(serializedShape),
 		isReadOnly: Boolean(options.isReadOnly),
 		hideOutline: Boolean(options.hideOutline),
 		showOrientationArrow: options.showOrientationArrow !== false,
@@ -2589,12 +2614,12 @@ function createRuleCard() {
 	baseSandbox.setShapesChangedHandler(() => {
 		syncRuleBaseShadow(ruleModel);
 		if (!isApplyingRules && !isAutoPlaying) {
-			clearApplyRunState();
+			clearRulesSnapshotState();
 		}
 	});
 	patternSandbox.setShapesChangedHandler(() => {
 		if (!isApplyingRules && !isAutoPlaying) {
-			clearApplyRunState();
+			clearRulesSnapshotState();
 		}
 	});
 	syncRuleBaseShadow(ruleModel);
