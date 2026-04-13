@@ -192,6 +192,16 @@ class Sandbox {
 			hasDragged: false,
 		};
 
+		this.zoomState = {
+			enabled: Boolean(options.enableZoom),
+			level: 1,
+			minLevel: 1,
+			maxLevel: 5,
+			zoomStep: 1.1,
+			panActive: false,
+			panStart: null,
+		};
+
 		this.stage.on("mousedown touchstart", (event) => {
 			event.evt?.preventDefault?.();
 			if (event.target === this.stage) {
@@ -258,6 +268,10 @@ class Sandbox {
 			this.selectionRect.height(0);
 			this.layer.batchDraw();
 		});
+
+		if (this.zoomState.enabled) {
+			this._setupZoomNavigation();
+		}
 
 		this.layer.draw();
 	}
@@ -456,6 +470,119 @@ class Sandbox {
 	resize() {
 		this.stage.width(this.containerEl.clientWidth);
 		this.stage.height(this.containerEl.clientHeight);
+		this.layer.batchDraw();
+	}
+
+	_setupZoomNavigation() {
+		const container = this.stage.container();
+
+		container.addEventListener("wheel", (event) => {
+			if (!this.zoomState.enabled) return;
+			event.preventDefault();
+
+			const pointer = this.stage.getPointerPosition();
+			if (!pointer) return;
+
+			const direction = event.deltaY > 0 ? 0 : 1;
+			const zoomFactor = direction === 1 ? this.zoomState.zoomStep : 1 / this.zoomState.zoomStep;
+
+			this.zoomToPoint(pointer, zoomFactor);
+		}, { passive: false });
+
+		container.addEventListener("keydown", (event) => {
+			if (!this.zoomState.enabled) return;
+
+			if (event.key === "+" || event.key === "=") {
+				event.preventDefault();
+				const centerX = this.stage.width() / 2;
+				const centerY = this.stage.height() / 2;
+				this.zoomToPoint({ x: centerX, y: centerY }, this.zoomState.zoomStep);
+			}
+
+			if (event.key === "-" || event.key === "_") {
+				event.preventDefault();
+				const centerX = this.stage.width() / 2;
+				const centerY = this.stage.height() / 2;
+				this.zoomToPoint({ x: centerX, y: centerY }, 1 / this.zoomState.zoomStep);
+			}
+
+			if (event.key === "0") {
+				event.preventDefault();
+				this.resetZoom();
+			}
+		});
+
+		let panLastPoint = null;
+
+		container.addEventListener("mousedown", (event) => {
+			if (event.button === 2 || (event.button === 1)) {
+				this.zoomState.panActive = true;
+				panLastPoint = { x: event.clientX, y: event.clientY };
+				event.preventDefault();
+			}
+		});
+
+		container.addEventListener("mousemove", (event) => {
+			if (!this.zoomState.panActive || !panLastPoint) return;
+
+			const dx = event.clientX - panLastPoint.x;
+			const dy = event.clientY - panLastPoint.y;
+
+			const stageX = this.stage.x() + dx;
+			const stageY = this.stage.y() + dy;
+
+			this.stage.position({ x: stageX, y: stageY });
+			this.layer.batchDraw();
+
+			panLastPoint = { x: event.clientX, y: event.clientY };
+		});
+
+		container.addEventListener("mouseup", () => {
+			this.zoomState.panActive = false;
+			panLastPoint = null;
+		});
+
+		container.addEventListener("mouseleave", () => {
+			this.zoomState.panActive = false;
+			panLastPoint = null;
+		});
+	}
+
+	zoomToPoint(point, zoomFactor) {
+		if (!this.zoomState.enabled) return;
+
+		const oldScale = this.zoomState.level;
+		const newScale = clamp(oldScale * zoomFactor, this.zoomState.minLevel, this.zoomState.maxLevel);
+
+		if (newScale === oldScale) return;
+
+		const scaleBy = newScale / oldScale;
+		const newX = point.x - scaleBy * (point.x - this.stage.x());
+		const newY = point.y - scaleBy * (point.y - this.stage.y());
+
+		this.stage.scale({ x: newScale, y: newScale });
+		this.stage.position({ x: newX, y: newY });
+
+		this.zoomState.level = newScale;
+		this.layer.batchDraw();
+	}
+
+	resetZoom() {
+		if (!this.zoomState.enabled) return;
+
+		this.stage.scale({ x: 1, y: 1 });
+		this.stage.position({ x: 0, y: 0 });
+		this.zoomState.level = 1;
+		this.layer.batchDraw();
+	}
+
+	panBy(dx, dy) {
+		if (!this.zoomState.enabled) return;
+
+		const stageX = this.stage.x() + dx;
+		const stageY = this.stage.y() + dy;
+
+		this.stage.position({ x: stageX, y: stageY });
 		this.layer.batchDraw();
 	}
 
@@ -2175,6 +2302,7 @@ async function applyRulesToOutput() {
 			});
 		});
 		applyTinyShapePurgeToOutputSandbox();
+		outputSandbox.resetZoom();
 		outputSandbox.layer.batchDraw();
 		outputSandbox.notifyShapesChanged();
 	} finally {
@@ -2196,6 +2324,7 @@ async function playRulesToLimit() {
 	const runToken = autoPlayRunToken;
 	updatePlayButtonVisualState();
 	setOutputActionButtonsEnabled(true);
+	outputSandbox.resetZoom();
 
 	try {
 		let stoppedByMax = false;
@@ -2269,6 +2398,7 @@ function resetOutputFromStorage() {
 			});
 		});
 		applyTinyShapePurgeToOutputSandbox();
+		outputSandbox.resetZoom();
 		outputSandbox.layer.batchDraw();
 		outputSandbox.notifyShapesChanged();
 		setActiveSandbox(outputSandbox);
@@ -2828,7 +2958,7 @@ createRuleCard();
 clearApplyRunState();
 
 if (outputWorkspaceEl) {
-	outputSandbox = new Sandbox(outputWorkspaceEl);
+	outputSandbox = new Sandbox(outputWorkspaceEl, { enableZoom: true });
 	outputSandbox.resize();
 	sandboxes.push(outputSandbox);
 	outputSandbox.setShapesChangedHandler(() => {
