@@ -44,6 +44,7 @@ const addRuleButtonEl = document.createElement("button");
 
 const STORAGE_RULES_SNAPSHOT_KEY = "fracdle.rules.snapshot.v2";
 const STORAGE_OUTPUT_ORIGINAL_KEY = "fracdle.output.original.v2";
+const DEFAULT_SCENE_PATH = "./snowflake.json";
 
 const sandboxes = [];
 const rules = [];
@@ -63,7 +64,7 @@ let isAutoPlaying = false;
 let autoPlayRunToken = 0;
 let playStoppedAtMax = false;
 let outputArrowsVisible = true;
-let outputTinyShapesPurged = true;
+let outputTinyShapesPurged = false;
 let isResettingOutput = false;
 let draggingRule = null;
 
@@ -2936,6 +2937,19 @@ async function handleLoadFile(event) {
 	loadInput.value = "";
 }
 
+async function loadDefaultSceneOnStartup() {
+	try {
+		const response = await fetch(DEFAULT_SCENE_PATH, { cache: "no-store" });
+		if (!response.ok) {
+			return;
+		}
+		const sceneData = await response.json();
+		loadAllSceneData(sceneData);
+	} catch {
+		// Ignore missing/unreachable default scene.
+	}
+}
+
 addSpawnButtons();
 addColorButtons();
 updateEdgeAnchorControlState();
@@ -3083,6 +3097,7 @@ updatePlayButtonVisualState();
 updateOutputArrowsToggleButton();
 updateOutputTinyShapesToggleButton();
 setOutputActionButtonsEnabled(true);
+loadDefaultSceneOnStartup();
 
 window.addEventListener("resize", () => {
 	for (const sandbox of sandboxes) {

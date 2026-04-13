@@ -1,0 +1,127 @@
+{
+  "version": 2,
+  "rules": [
+    {
+      "base": {
+        "shape": "hexagon",
+        "color": "#3b82f6",
+        "rotation": 0,
+        "scale": 2.067527207434504,
+        "position": {
+          "x": 171.17507411120607,
+          "y": 161.9626713201851
+        }
+      },
+      "pattern": [
+        {
+          "shape": "hexagon",
+          "color": "#06b6d4",
+          "rotation": 0,
+          "relativeScale": 0.33333333333333337,
+          "relativePosition": {
+            "x": 0,
+            "y": -79.94438535413414
+          }
+        },
+        {
+          "shape": "hexagon",
+          "color": "#06b6d4",
+          "rotation": 0,
+          "relativeScale": 0.33333333333333337,
+          "relativePosition": {
+            "x": -69.23386860661283,
+            "y": -39.97219267706703
+          }
+        },
+        {
+          "shape": "hexagon",
+          "color": "#06b6d4",
+          "rotation": 0,
+          "relativeScale": 0.33333333333333337,
+          "relativePosition": {
+            "x": -69.23386860661283,
+            "y": 39.97219267706714
+          }
+        },
+        {
+          "shape": "hexagon",
+          "color": "#06b6d4",
+          "rotation": 0,
+          "relativeScale": 0.33333333333333337,
+          "relativePosition": {
+            "x": 0,
+            "y": 79.94438535413411
+          }
+        },
+        {
+          "shape": "hexagon",
+          "color": "#06b6d4",
+          "rotation": 0,
+          "relativeScale": 0.33333333333333337,
+          "relativePosition": {
+            "x": 69.23386860661276,
+            "y": 39.97219267706703
+          }
+        },
+        {
+          "shape": "hexagon",
+          "color": "#06b6d4",
+          "rotation": 0,
+          "relativeScale": 0.33333333333333337,
+          "relativePosition": {
+            "x": 69.23386860661282,
+            "y": -39.97219267706707
+          }
+        },
+        {
+          "shape": "hexagon",
+          "color": "#3b82f6",
+          "rotation": 0,
+          "relativeScale": 0.6666666666666665,
+          "relativePosition": {
+            "x": -2.842170943040401e-14,
+            "y": 0
+          }
+        }
+      ]
+    },
+    {
+      "base": {
+        "shape": "hexagon",
+        "color": "#06b6d4",
+        "rotation": 0,
+        "scale": 1,
+        "position": {
+          "x": 159.5375739117328,
+          "y": 146.11093924605984
+        }
+      },
+      "pattern": [
+        {
+          "shape": "hexagon",
+          "color": "#3b82f6",
+          "rotation": 0,
+          "relativeScale": 1,
+          "relativePosition": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ]
+    }
+  ],
+  "output": {
+    "shapes": [
+      {
+        "shape": "hexagon",
+        "color": "#3b82f6",
+        "rotation": 0,
+        "scale": 5.144215567204601,
+        "position": {
+          "x": 390.3128781436918,
+          "y": 415.2418479651458
+        }
+      }
+    ]
+  }
+}
