@@ -16,6 +16,7 @@ const EDGE_ANGLE_TOLERANCE_DEG = 10;
 const WORKSPACES_PER_RULE = 2;
 const MIN_OUTPUT_VISIBLE_RADIUS_PX = 1.5;
 const MIN_PLAY_DELAY_MS = 10;
+const OUTPUT_EXPORT_PIXEL_RATIO = 4;
 
 const paletteById = new Map(palette.map((item) => [item.id, item]));
 const controlsEl = document.getElementById("spawn-controls");
@@ -36,6 +37,7 @@ const outputWorkspaceEl = document.getElementById("output-workspace");
 const applyRulesBtn = document.getElementById("apply-rules-btn");
 const resetOutputBtn = document.getElementById("reset-output-btn");
 const resetOutputZoomBtn = document.getElementById("reset-output-zoom-btn");
+const saveOutputPngBtn = document.getElementById("save-output-png-btn");
 const playRulesBtn = document.getElementById("play-rules-btn");
 const toggleOutputArrowsBtn = document.getElementById("toggle-output-arrows-btn");
 const toggleOutputTinyShapesBtn = document.getElementById("toggle-output-tiny-shapes-btn");
@@ -1843,6 +1845,38 @@ function downloadText(filename, content) {
 	URL.revokeObjectURL(link.href);
 }
 
+function downloadDataUrl(filename, dataUrl) {
+	const link = document.createElement("a");
+	link.href = dataUrl;
+	link.download = filename;
+	link.click();
+}
+
+function saveOutputAsPng() {
+	if (!outputSandbox?.stage) {
+		return;
+	}
+
+	const wasSelectionVisible = outputSandbox.selectionRect?.visible?.() || false;
+	if (wasSelectionVisible) {
+		outputSandbox.selectionRect.visible(false);
+	}
+
+	try {
+		const dataUrl = outputSandbox.stage.toDataURL({
+			mimeType: "image/png",
+			pixelRatio: OUTPUT_EXPORT_PIXEL_RATIO,
+		});
+		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+		downloadDataUrl(`output-${timestamp}.png`, dataUrl);
+	} finally {
+		if (wasSelectionVisible) {
+			outputSandbox.selectionRect.visible(true);
+		}
+		outputSandbox.layer.batchDraw();
+	}
+}
+
 async function saveSceneAsFile(content) {
 	const suggestedName = "polygon-scene.json";
 
@@ -3113,6 +3147,7 @@ resetOutputBtn?.addEventListener("click", resetOutputFromStorage);
 resetOutputZoomBtn?.addEventListener("click", () => {
 	outputSandbox?.resetZoom();
 });
+saveOutputPngBtn?.addEventListener("click", saveOutputAsPng);
 playRulesBtn?.addEventListener("click", togglePlayRules);
 toggleOutputArrowsBtn?.addEventListener("click", () => {
 	setOutputArrowsVisible(!outputArrowsVisible);
