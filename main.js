@@ -4,6 +4,7 @@ const palette = [
 	{ id: "line", sides: 2, radius: 60 },
 	{ id: "pentagon", sides: 5, radius: 55 },
 	{ id: "hexagon", sides: 6, radius: 58 },
+	{ id: "septagon", sides: 7, radius: 60 },
 	{ id: "octagon", sides: 8, radius: 62 },
 ];
 
